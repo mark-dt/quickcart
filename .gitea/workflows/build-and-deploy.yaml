@@ -7,10 +7,16 @@ jobs:
   build-and-deploy:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          rm -rf $GITHUB_WORKSPACE/*
+          cd $GITHUB_WORKSPACE
+          git clone $GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git .
+          git checkout $GITHUB_SHA
 
       - name: Build and import images
         run: |
+          cd $GITHUB_WORKSPACE
           for svc in frontend order-service payment-service inventory-service notification-service; do
             if [ -d "services/$svc" ]; then
               echo "==> Building workshop/$svc:local"
