@@ -1,0 +1,38 @@
+name: Build and Deploy QuickCart
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and import images
+        run: |
+          for svc in frontend order-service payment-service inventory-service notification-service; do
+            if [ -d "services/$svc" ]; then
+              echo "==> Building workshop/$svc:local"
+              docker build -t "workshop/$svc:local" "services/$svc/"
+              echo "==> Importing into k3s containerd"
+              k3s ctr images rm "docker.io/workshop/$svc:local" 2>/dev/null || true
+              docker save "workshop/$svc:local" | k3s ctr images import -
+            fi
+          done
+
+      - name: Restart deployments
+        run: |
+          for svc in frontend order-service payment-service inventory-service notification-service; do
+            if k3s kubectl -n workshop get deploy "$svc" >/dev/null 2>&1; then
+              echo "==> Restarting $svc"
+              k3s kubectl -n workshop rollout restart "deploy/$svc"
+            fi
+          done
+          for svc in frontend order-service payment-service inventory-service notification-service; do
+            if k3s kubectl -n workshop get deploy "$svc" >/dev/null 2>&1; then
+              echo "==> Waiting for $svc..."
+              k3s kubectl -n workshop rollout status "deploy/$svc" --timeout=120s || true
+            fi
+          done
+          echo "==> All services redeployed."
