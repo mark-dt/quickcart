@@ -1,9 +1,8 @@
 # QuickCart
 
 ## Project Overview
-Workshop demo environment for Dynatrace HOT (Hands-On Training) sessions. Combines two apps:
+Workshop demo environment for Dynatrace HOT (Hands-On Training) sessions.
 - **Workshop app**: Custom Node.js microservices (frontend, order-service, payment-service, inventory-service, notification-service) running on k3s
-- **EasyTrade**: Dynatrace demo trading app with feature flag-based problem patterns
 
 ## Architecture
 
@@ -20,18 +19,11 @@ All service manifests include labels and env vars for Dynatrace release tracking
 - Env vars: `DT_RELEASE_VERSION`, `DT_RELEASE_PRODUCT`, `DT_RELEASE_STAGE`
 - Baseline version is `1.0.0`; the `workshop-release` workflow bumps payment-service to `bad-release-<N>` / `rollback-<N>`
 
-### EasyTrade
-- Feature flags toggled via `PUT {EASYTRADE_BASE_URL}/feature-flag-service/v1/flags/{FF_KEY}`
-- Flags: `db_not_responding`, `factory_crisis`, `ergo_aggregator_slowdown`, `high_cpu_usage`
-
 ## GitHub Workflows
-All in `.github/workflows/`, prefixed by target app:
+All in `.github/workflows/`:
 - `workshop-deploy-bad-release.yaml` — Set/rollback payment-service failure rate via HTTP API. Supports `workflow_dispatch` and `repository_dispatch` (event: `auto-remediate`)
 - `workshop-release.yaml` — GitOps release: commits version label + failure rate changes to `k8s/payment-service.yaml` for ArgoCD sync. Supports `workflow_dispatch` and `repository_dispatch` (event: `auto-remediate-release`). Uses `yq` to update manifest.
 - `workshop-build-and-push.yaml` — Build and push Docker images
-- `easytrade-ff-*.yaml` — Toggle individual feature flags. Each supports `repository_dispatch` for auto-remediation
-- `easytrade-auto-remediation.yaml` — Generic remediation via `repository_dispatch` with `ff_key` in payload
-- `easytrade-simulate-release.yaml` — Generic feature flag + deployment event
 
 ### Workflow Patterns
 - "Resolve action" step handles both `workflow_dispatch` and `repository_dispatch` triggers
@@ -44,7 +36,7 @@ Exported workflow JSONs in `dynatrace-workflows/` folder:
 - GitHub PAT referenced as `{{ env.GITHUB_PAT }}` — never hardcode tokens
 
 ## Secrets (GitHub Actions)
-`DT_ENV_URL`, `DT_API_TOKEN`, `WORKSHOP_IP`, `K8_CLUSTER`, `EASYTRADE_BASE_URL`, `GCP_SA_KEY`, `VM_NAME`, `VM_ZONE`, `GCP_PROJECT`
+`DT_ENV_URL`, `DT_API_TOKEN`, `WORKSHOP_IP`, `K8_CLUSTER`, `GCP_SA_KEY`, `VM_NAME`, `VM_ZONE`, `GCP_PROJECT`
 
 ## Dev Notes
 - VM startup script: `startup.sh` — clones repo, builds images, imports to k3s containerd, applies k8s manifests
