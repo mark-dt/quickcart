@@ -20,16 +20,23 @@ app.get("/check", (req, res) => {
 
   const delay = 20 + Math.random() * 80;
   setTimeout(() => {
-    const whId = WAREHOUSE_IDS[Math.floor(Math.random() * WAREHOUSE_IDS.length)];
-    const wh = WAREHOUSES[whId];
-    const available = wh.total - wh.reserved;
-    const restockUnits = Math.ceil(100 / available);
-    const restockSchedule = new Array(restockUnits).fill("pending");
+    let whId;
+    try {
+      whId = WAREHOUSE_IDS[Math.floor(Math.random() * WAREHOUSE_IDS.length)];
+      const wh = WAREHOUSES[whId];
+      const available = wh.total - wh.reserved;
+      const restockUnits = Math.ceil(100 / available);
+      const restockSchedule = new Array(restockUnits).fill("pending");
 
-    const inStock = available > 0;
-    const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, available, inStock, duration }));
-    res.json({ item, qty: parseInt(qty) || 1, inStock, warehouse: whId, restockDays: restockSchedule.length });
+      const inStock = available > 0;
+      const duration = Date.now() - start;
+      console.log(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, available, inStock, duration }));
+      res.json({ item, qty: parseInt(qty) || 1, inStock, warehouse: whId, restockDays: restockSchedule.length });
+    } catch (err) {
+      const duration = Date.now() - start;
+      console.error(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, level: "error", error: err.message, stack: err.stack, duration }));
+      res.status(500).json({ item, status: "error", error: err.message });
+    }
   }, delay);
 });
 

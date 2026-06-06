@@ -54,7 +54,7 @@ app.get("/order", async (req, res) => {
     }
   } catch (err) {
     const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "order-service", path: "/order", orderId, item, error: err.message, duration }));
+    console.error(JSON.stringify({ service: "order-service", path: "/order", orderId, item, level: "error", error: err.message, stack: err.stack, duration }));
     res.status(502).json({ orderId, status: "error", error: err.message });
   }
 });
