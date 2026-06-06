@@ -67,11 +67,11 @@ app.get("/order", async (req, res) => {
   try {
     const result = await fetch(`${ORDER_SERVICE}/order`);
     const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "frontend", method: "GET", path: "/order", upstream_status: result.status, duration }));
+    console.log(JSON.stringify({ service: "frontend", method: "GET", path: "/order", status: result.status, duration }));
     res.status(result.status).json(JSON.parse(result.data));
   } catch (err) {
     const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "frontend", method: "GET", path: "/order", error: err.message, duration }));
+    console.error(JSON.stringify({ service: "frontend", method: "GET", path: "/order", status: 502, level: "error", error: err.message, duration }));
     res.status(502).json({ error: "order-service unavailable" });
   }
 });

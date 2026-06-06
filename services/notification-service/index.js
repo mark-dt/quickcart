@@ -15,7 +15,7 @@ app.get("/notify", (req, res) => {
   const delay = 10 + Math.random() * 40; // 10-50ms
   setTimeout(() => {
     const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "notification-service", path: "/notify", orderId, event, channel: "email", duration }));
+    console.log(JSON.stringify({ service: "notification-service", path: "/notify", orderId, event, status: 200, channel: "email", duration }));
     res.json({ orderId, event, notified: true, channel: "email" });
   }, delay);
 });

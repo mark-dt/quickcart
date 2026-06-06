@@ -45,7 +45,8 @@ app.get("/order", async (req, res) => {
     const meta = PRODUCT_META[item];
     const category = meta.category;
 
-    console.log(JSON.stringify({ service: "order-service", path: "/order", orderId, item, category, paymentStatus: paymentResult.status, inventoryStatus: inventoryResult.status, duration }));
+    const status = paymentOk && inventoryOk ? 200 : 500;
+    console.log(JSON.stringify({ service: "order-service", path: "/order", orderId, item, category, status, paymentStatus: paymentResult.status, inventoryStatus: inventoryResult.status, duration }));
 
     if (paymentOk && inventoryOk) {
       res.json({ orderId, item, category, status: "confirmed", payment: JSON.parse(paymentResult.data), inventory: JSON.parse(inventoryResult.data) });
@@ -54,7 +55,7 @@ app.get("/order", async (req, res) => {
     }
   } catch (err) {
     const duration = Date.now() - start;
-    console.error(JSON.stringify({ service: "order-service", path: "/order", orderId, item, level: "error", error: err.message, stack: err.stack, duration }));
+    console.error(JSON.stringify({ service: "order-service", path: "/order", orderId, item, status: 502, level: "error", error: err.message, stack: err.stack, duration }));
     res.status(502).json({ orderId, status: "error", error: err.message });
   }
 });

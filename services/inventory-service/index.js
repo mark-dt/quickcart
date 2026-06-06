@@ -30,11 +30,11 @@ app.get("/check", (req, res) => {
 
       const inStock = available > 0;
       const duration = Date.now() - start;
-      console.log(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, available, inStock, duration }));
+      console.log(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, status: 200, available, inStock, duration }));
       res.json({ item, qty: parseInt(qty) || 1, inStock, warehouse: whId, restockDays: restockSchedule.length });
     } catch (err) {
       const duration = Date.now() - start;
-      console.error(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, level: "error", error: err.message, stack: err.stack, duration }));
+      console.error(JSON.stringify({ service: "inventory-service", path: "/check", item, qty, warehouse: whId, status: 500, level: "error", error: err.message, stack: err.stack, duration }));
       res.status(500).json({ item, status: "error", error: err.message });
     }
   }, delay);
