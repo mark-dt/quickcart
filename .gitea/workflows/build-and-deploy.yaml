@@ -42,3 +42,32 @@ jobs:
             fi
           done
           echo "==> All services redeployed."
+
+      - name: Send Dynatrace deployment events
+        if: always()
+        env:
+          DT_ENV_URL: ${{ secrets.DT_ENV_URL }}
+          DT_API_TOKEN: ${{ secrets.DT_API_TOKEN }}
+          K8_CLUSTER: ${{ secrets.K8_CLUSTER }}
+        run: |
+          for svc in frontend order-service payment-service inventory-service notification-service; do
+            echo "==> Sending Dynatrace deployment event for $svc"
+            curl -X POST \
+              -H "Authorization: Api-Token ${DT_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${DT_ENV_URL}/api/v2/events/ingest" \
+              -d @- <<EOF
+          {
+            "eventType": "CUSTOM_DEPLOYMENT",
+            "title": "QuickCart deploy: ${svc}",
+            "description": "Build and deploy from commit ${{ github.sha }}",
+            "entitySelector": "type(\"SERVICE\"),entityName.startsWith(\"${svc}\"),tag(\"environment:${K8_CLUSTER}\")",
+            "properties": {
+              "git.repository": "${{ github.repository }}",
+              "git.commit": "${{ github.sha }}",
+              "deployment.url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "environment": "${K8_CLUSTER}"
+            }
+          }
+          EOF
+          done
