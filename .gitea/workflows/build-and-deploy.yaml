@@ -61,7 +61,7 @@ jobs:
             "eventType": "CUSTOM_DEPLOYMENT",
             "title": "QuickCart deploy: ${svc}",
             "description": "Build and deploy from commit ${{ github.sha }}",
-            "entitySelector": "type(\"SERVICE\"),entityName.startsWith(\"${svc}\"),tag(\"environment:${K8_CLUSTER}\")",
+            "entitySelector": "type(SERVICE),entityName.startsWith(\"${svc}\"),toRelationships.isClusterOfService(type(KUBERNETES_CLUSTER),entityName(${K8_CLUSTER}))",
             "properties": {
               "git.repository": "${{ github.repository }}",
               "git.commit": "${{ github.sha }}",
