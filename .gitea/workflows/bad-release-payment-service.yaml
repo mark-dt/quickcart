@@ -1,0 +1,75 @@
+name: Bad Release - Payment Service (Exercise 1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - deploy-bad-release
+          - rollback
+      failure_rate:
+        description: "Failure rate (0.0-1.0), only used for deploy-bad-release"
+        required: false
+        default: "1.0"
+  repository_dispatch:
+    types: [auto-remediate-payment]
+
+env:
+  DT_ENV_URL: ${{ secrets.DT_ENV_URL }}
+  DT_API_TOKEN: ${{ secrets.DT_API_TOKEN }}
+  K8_CLUSTER: ${{ secrets.K8_CLUSTER }}
+  WORKSHOP_IP: ${{ secrets.WORKSHOP_IP }}
+
+jobs:
+  bad-release:
+    runs-on: self-hosted
+
+    steps:
+      - name: Resolve action
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "action=rollback" >> "$GITHUB_OUTPUT"
+            echo "failure_rate=0" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.action }}" = "rollback" ]; then
+            echo "action=rollback" >> "$GITHUB_OUTPUT"
+            echo "failure_rate=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=deploy-bad-release" >> "$GITHUB_OUTPUT"
+            echo "failure_rate=${{ inputs.failure_rate }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set failure rate via API
+        run: |
+          curl -sS -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"rate\":${{ steps.resolve.outputs.failure_rate }}}" \
+            "https://workshop.${WORKSHOP_IP}.nip.io/admin/failure-rate"
+
+      - name: Send Dynatrace deployment event
+        if: always()
+        run: |
+          REMEDIATION_URL="${{ github.server_url }}/api/v1/repos/${{ github.repository }}/dispatches"
+          curl -X POST \
+            -H "Authorization: Api-Token ${DT_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${DT_ENV_URL}/api/v2/events/ingest" \
+            -d @- <<EOF
+          {
+            "eventType": "CUSTOM_DEPLOYMENT",
+            "title": "payment-service ${{ steps.resolve.outputs.action }}",
+            "description": "Failure rate set to ${{ steps.resolve.outputs.failure_rate }}",
+            "entitySelector": "type(SERVICE),entityName.startsWith(\"payment-service\"),toRelationships.isClusterOfService(type(KUBERNETES_CLUSTER),entityName(${K8_CLUSTER}))",
+            "properties": {
+              "git.repository": "${{ github.repository }}",
+              "git.commit": "${{ github.sha }}",
+              "deployment.url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "remediation.url": "${REMEDIATION_URL}",
+              "remediation.event_type": "auto-remediate-payment",
+              "environment": "${K8_CLUSTER}"
+            }
+          }
+          EOF

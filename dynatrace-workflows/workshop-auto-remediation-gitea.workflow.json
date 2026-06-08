@@ -1,0 +1,72 @@
+{
+  "title": "[WORKSHOP] Auto-Remediation: Gitea Pipeline Trigger",
+  "description": "Detects a Davis problem, extracts remediation.url from the latest CUSTOM_DEPLOYMENT event for the affected service, and POSTs to the Gitea dispatches API to roll back.",
+  "schemaVersion": 3,
+  "trigger": {
+    "eventTrigger": {
+      "isActive": false,
+      "filterQuery": "event.kind == \"DAVIS_PROBLEM\" AND event.status == \"ACTIVE\" AND (event.status_transition == \"CREATED\" OR event.status_transition == \"UPDATED\" OR event.status_transition == \"REOPENED\") AND (event.category == \"ERROR\")",
+      "uniqueExpression": "{{ event()[\"event.id\"] }}-{{ \"open\" if event()[\"event.status\"] == \"ACTIVE\" else \"resolved\" }}-{{ event()[\"dt.davis.last_reopen_timestamp\"] }}",
+      "triggerConfiguration": {
+        "type": "davis-problem",
+        "value": {
+          "categories": {
+            "error": true
+          },
+          "entityTags": {
+            "app": [
+              "workshop"
+            ]
+          },
+          "customFilter": "",
+          "analysisReady": false,
+          "onProblemClose": false,
+          "entityTagsMatch": null
+        }
+      }
+    }
+  },
+  "result": null,
+  "type": "STANDARD",
+  "input": {},
+  "hourlyExecutionLimit": 1000,
+  "guide": null,
+  "tasks": {
+    "lookup_remediation": {
+      "name": "lookup_remediation",
+      "input": {
+        "query": "fetch events\n| filter event.id == \"{{event()[\"event.id\"]}}\"\n| lookup [\n  fetch events\n  | filter event.type == \"CUSTOM_DEPLOYMENT\" and dt.smartscape_source.type == \"SERVICE\"\n  | fields dt.source_entity, remediation.url, remediation.event_type, timestamp\n  | sort timestamp desc\n  | dedup dt.source_entity\n], sourceField:root_cause_entity_id, lookupField:dt.source_entity\n| filter isNotNull(lookup.remediation.url)\n| fields lookup.remediation.url, lookup.remediation.event_type",
+        "timezone": "Europe/Berlin"
+      },
+      "action": "dynatrace.automations:execute-dql-query",
+      "active": true,
+      "position": {
+        "x": 0,
+        "y": 1
+      },
+      "description": "Find the latest CUSTOM_DEPLOYMENT remediation hook for the root-cause service.",
+      "predecessors": []
+    },
+    "trigger_gitea_dispatch": {
+      "name": "trigger_gitea_dispatch",
+      "input": {
+        "script": "import { execution } from '@dynatrace-sdk/automation-utils';\n\nexport default async function ({ execution_id }) {\n  const exec = await execution(execution_id);\n  const lookup = await exec.result('lookup_remediation');\n\n  if (!lookup.records || lookup.records.length === 0) {\n    console.log('No remediation.url found for the affected service \\u2014 skipping.');\n    return { skipped: true, reason: 'no-remediation-url' };\n  }\n\n  const record = lookup.records[0];\n  const url = record['lookup.remediation.url'];\n  const eventType = record['lookup.remediation.event_type'];\n\n  console.log(`Triggering Gitea dispatch: url=${url} event_type=${eventType}`);\n\n  const response = await fetch(url, {\n    method: 'POST',\n    headers: {\n      'Accept': 'application/json',\n      'Content-Type': 'application/json',\n      'Authorization': 'token {{ env.GITEA_PAT }}'\n    },\n    body: JSON.stringify({ event_type: eventType })\n  });\n\n  const text = await response.text();\n  console.log(`Gitea response ${response.status}: ${text}`);\n\n  return {\n    status: response.status,\n    success: response.status >= 200 && response.status < 300,\n    url,\n    eventType\n  };\n}\n"
+      },
+      "action": "dynatrace.automations:run-javascript",
+      "active": true,
+      "position": {
+        "x": 0,
+        "y": 2
+      },
+      "conditions": {
+        "states": {
+          "lookup_remediation": "OK"
+        }
+      },
+      "description": "POST to Gitea dispatches API with the event_type carried in the deployment event.",
+      "predecessors": [
+        "lookup_remediation"
+      ]
+    }
+  }
+}

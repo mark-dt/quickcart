@@ -43,7 +43,7 @@ app.get("/order", async (req, res) => {
     const inventoryOk = inventoryResult.status === 200;
 
     const meta = PRODUCT_META[item];
-    const category = meta.category;
+    const category = meta ? meta.category : "general";
 
     const status = paymentOk && inventoryOk ? 200 : 500;
     console.log(JSON.stringify({ service: "order-service", path: "/order", orderId, item, category, status, paymentStatus: paymentResult.status, inventoryStatus: inventoryResult.status, duration }));

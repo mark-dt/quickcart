@@ -1,0 +1,94 @@
+name: Bad Release - Order Service (Exercise 2)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - deploy-bad-release
+          - rollback
+  repository_dispatch:
+    types: [auto-remediate-order]
+
+env:
+  DT_ENV_URL: ${{ secrets.DT_ENV_URL }}
+  DT_API_TOKEN: ${{ secrets.DT_API_TOKEN }}
+  K8_CLUSTER: ${{ secrets.K8_CLUSTER }}
+  GITEA_PAT: ${{ secrets.GITEA_PAT }}
+
+jobs:
+  bad-release:
+    runs-on: self-hosted
+
+    steps:
+      - name: Resolve action
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "action=rollback" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=${{ inputs.action }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (with push credentials)
+        run: |
+          rm -rf $GITHUB_WORKSPACE/*
+          cd $GITHUB_WORKSPACE
+          AUTH_HOST="${GITHUB_SERVER_URL#https://}"
+          AUTH_HOST="${AUTH_HOST#http://}"
+          git clone "https://gitea-actions:${GITEA_PAT}@${AUTH_HOST}/${GITHUB_REPOSITORY}.git" .
+          git checkout main
+
+      - name: Mutate order-service source
+        id: mutate
+        run: |
+          cd $GITHUB_WORKSPACE
+          if [ "${{ steps.resolve.outputs.action }}" = "deploy-bad-release" ]; then
+            sed -i 's|const category = meta ? meta.category : "general";|const category = meta.category;|' services/order-service/index.js
+          else
+            sed -i 's|const category = meta.category;|const category = meta ? meta.category : "general";|' services/order-service/index.js
+          fi
+          if git diff --quiet; then
+            echo "==> No changes — already in desired state."
+            echo "changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push
+        if: steps.mutate.outputs.changes == 'true'
+        run: |
+          cd $GITHUB_WORKSPACE
+          git config user.name "gitea-actions[bot]"
+          git config user.email "gitea-actions[bot]@users.noreply.local"
+          git add services/order-service/index.js
+          git commit -m "release: order-service ${{ steps.resolve.outputs.action }}"
+          git push origin main
+
+      - name: Send Dynatrace deployment event
+        if: always()
+        run: |
+          REMEDIATION_URL="${{ github.server_url }}/api/v1/repos/${{ github.repository }}/dispatches"
+          curl -X POST \
+            -H "Authorization: Api-Token ${DT_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${DT_ENV_URL}/api/v2/events/ingest" \
+            -d @- <<EOF
+          {
+            "eventType": "CUSTOM_DEPLOYMENT",
+            "title": "order-service ${{ steps.resolve.outputs.action }}",
+            "description": "GitOps source mutation: ${{ steps.resolve.outputs.action }}",
+            "entitySelector": "type(SERVICE),entityName.startsWith(\"order-service\"),toRelationships.isClusterOfService(type(KUBERNETES_CLUSTER),entityName(${K8_CLUSTER}))",
+            "properties": {
+              "git.repository": "${{ github.repository }}",
+              "git.commit": "${{ github.sha }}",
+              "deployment.url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "remediation.url": "${REMEDIATION_URL}",
+              "remediation.event_type": "auto-remediate-order",
+              "environment": "${K8_CLUSTER}"
+            }
+          }
+          EOF

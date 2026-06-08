@@ -25,7 +25,7 @@ app.get("/check", (req, res) => {
       whId = WAREHOUSE_IDS[Math.floor(Math.random() * WAREHOUSE_IDS.length)];
       const wh = WAREHOUSES[whId];
       const available = wh.total - wh.reserved;
-      const restockUnits = Math.ceil(100 / available);
+      const restockUnits = available > 0 ? Math.ceil(100 / available) : 0;
       const restockSchedule = new Array(restockUnits).fill("pending");
 
       const inStock = available > 0;
