@@ -1,6 +1,17 @@
 const express = require("express");
 const http = require("http");
 
+
+const otel = require("@opentelemetry/api");
+// Returns { trace_id, span_id } of the active OneAgent-instrumented span,
+// or {} if no span is active (startup, background timers, etc.).
+function tc() {
+  const s = otel.trace.getActiveSpan();
+  if (!s) return {};
+  const c = s.spanContext();
+  return { trace_id: c.traceId, span_id: c.spanId };
+}
+
 const app = express();
 const PORT = process.env.PORT || 3002;
 const NOTIFICATION_SERVICE = process.env.NOTIFICATION_SERVICE_URL || "http://notification-service.workshop.svc.cluster.local:3004";
@@ -38,7 +49,7 @@ app.post("/admin/failure-rate", (req, res) => {
     return res.status(400).json({ error: "rate must be a number between 0.0 and 1.0" });
   }
   failureRate = rate;
-  console.log(JSON.stringify({ service: "payment-service", event: "failure-rate-changed", failureRate }));
+  console.log(JSON.stringify({ service: "payment-service", event: "failure-rate-changed", failureRate, ...tc() }));
   res.json({ failureRate });
 });
 
@@ -50,7 +61,7 @@ app.get("/pay", async (req, res) => {
   if (Math.random() < failureRate) {
     await simulateFailureLatency();
     const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, status: 500, error: "payment processing failed", duration }));
+    console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, status: 500, error: "payment processing failed", duration, ...tc() }));
     return res.status(500).json({ error: "payment processing failed", orderId });
   }
 
@@ -60,11 +71,11 @@ app.get("/pay", async (req, res) => {
   try {
     await fetch(`${NOTIFICATION_SERVICE}/notify?orderId=${orderId}&event=payment_confirmed`);
   } catch (err) {
-    console.log(JSON.stringify({ service: "payment-service", path: "/pay", notification_error: err.message }));
+    console.log(JSON.stringify({ service: "payment-service", path: "/pay", notification_error: err.message, ...tc() }));
   }
 
   const duration = Date.now() - start;
-  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, status: 200, duration }));
+  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, status: 200, duration, ...tc() }));
   res.json({ orderId, amount, paymentStatus: "confirmed", transactionId: `TXN-${Date.now()}` });
 });
 

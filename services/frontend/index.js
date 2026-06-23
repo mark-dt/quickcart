@@ -2,6 +2,17 @@ const express = require("express");
 const http = require("http");
 const path = require("path");
 
+
+const otel = require("@opentelemetry/api");
+// Returns { trace_id, span_id } of the active OneAgent-instrumented span,
+// or {} if no span is active (startup, background timers, etc.).
+function tc() {
+  const s = otel.trace.getActiveSpan();
+  if (!s) return {};
+  const c = s.spanContext();
+  return { trace_id: c.traceId, span_id: c.spanId };
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ORDER_SERVICE = process.env.ORDER_SERVICE_URL || "http://order-service.workshop.svc.cluster.local:3001";
@@ -67,11 +78,11 @@ app.get("/order", async (req, res) => {
   try {
     const result = await fetch(`${ORDER_SERVICE}/order`);
     const duration = Date.now() - start;
-    console.log(JSON.stringify({ service: "frontend", method: "GET", path: "/order", status: result.status, duration }));
+    console.log(JSON.stringify({ service: "frontend", method: "GET", path: "/order", status: result.status, duration, ...tc() }));
     res.status(result.status).json(JSON.parse(result.data));
   } catch (err) {
     const duration = Date.now() - start;
-    console.error(JSON.stringify({ service: "frontend", method: "GET", path: "/order", status: 502, level: "error", error: err.message, duration }));
+    console.error(JSON.stringify({ service: "frontend", method: "GET", path: "/order", status: 502, level: "error", error: err.message, duration, ...tc() }));
     res.status(502).json({ error: "order-service unavailable" });
   }
 });

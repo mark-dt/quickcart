@@ -1,6 +1,17 @@
 const express = require("express");
 const http = require("http");
 
+
+const otel = require("@opentelemetry/api");
+// Returns { trace_id, span_id } of the active OneAgent-instrumented span,
+// or {} if no span is active (startup, background timers, etc.).
+function tc() {
+  const s = otel.trace.getActiveSpan();
+  if (!s) return {};
+  const c = s.spanContext();
+  return { trace_id: c.traceId, span_id: c.spanId };
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const PAYMENT_SERVICE = process.env.PAYMENT_SERVICE_URL || "http://payment-service.workshop.svc.cluster.local:3002";
@@ -46,7 +57,7 @@ app.get("/order", async (req, res) => {
     const category = meta ? meta.category : "general";
 
     const status = paymentOk && inventoryOk ? 200 : 500;
-    console.log(JSON.stringify({ service: "order-service", path: "/order", orderId, item, category, status, paymentStatus: paymentResult.status, inventoryStatus: inventoryResult.status, duration }));
+    console.log(JSON.stringify({ service: "order-service", path: "/order", orderId, item, category, status, paymentStatus: paymentResult.status, inventoryStatus: inventoryResult.status, duration, ...tc() }));
 
     if (paymentOk && inventoryOk) {
       res.json({ orderId, item, category, status: "confirmed", payment: JSON.parse(paymentResult.data), inventory: JSON.parse(inventoryResult.data) });
@@ -55,7 +66,7 @@ app.get("/order", async (req, res) => {
     }
   } catch (err) {
     const duration = Date.now() - start;
-    console.error(JSON.stringify({ service: "order-service", path: "/order", orderId, item, status: 502, level: "error", error: err.message, stack: err.stack, duration }));
+    console.error(JSON.stringify({ service: "order-service", path: "/order", orderId, item, status: 502, level: "error", error: err.message, stack: err.stack, duration, ...tc() }));
     res.status(502).json({ orderId, status: "error", error: err.message });
   }
 });
