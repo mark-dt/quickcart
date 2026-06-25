@@ -83,6 +83,8 @@ jobs:
             "description": "GitOps source mutation: ${{ steps.resolve.outputs.action }}",
             "entitySelector": "type(SERVICE),entityName.startsWith(\"order-service\"),toRelationships.isClusterOfService(type(KUBERNETES_CLUSTER),entityName(${K8_CLUSTER}))",
             "properties": {
+              "event.title": "order-service ${{ steps.resolve.outputs.action }}",
+              "event.description": "GitOps source mutation: ${{ steps.resolve.outputs.action }} on commit ${{ github.sha }}",
               "git.repository": "${{ github.repository }}",
               "git.commit": "${{ github.sha }}",
               "deployment.url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",

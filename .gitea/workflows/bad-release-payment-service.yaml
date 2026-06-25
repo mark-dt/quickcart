@@ -64,6 +64,8 @@ jobs:
             "description": "Failure rate set to ${{ steps.resolve.outputs.failure_rate }}",
             "entitySelector": "type(SERVICE),entityName.startsWith(\"payment-service\"),toRelationships.isClusterOfService(type(KUBERNETES_CLUSTER),entityName(${K8_CLUSTER}))",
             "properties": {
+              "event.title": "payment-service ${{ steps.resolve.outputs.action }}",
+              "event.description": "Failure rate set to ${{ steps.resolve.outputs.failure_rate }} on commit ${{ github.sha }}",
               "git.repository": "${{ github.repository }}",
               "git.commit": "${{ github.sha }}",
               "deployment.url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
