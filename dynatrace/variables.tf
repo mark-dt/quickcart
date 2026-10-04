@@ -85,8 +85,8 @@ variable "gate_soak_seconds" {
 
 variable "gate_window" {
   type        = string
-  default     = "now-4m"
-  description = "Start of the quality-gate evaluation window (end is always now)"
+  default     = "now()-4m"
+  description = "Start of the quality-gate evaluation window in DQL time syntax (end is always now())"
 }
 
 variable "release_product" {

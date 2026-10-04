@@ -32,7 +32,7 @@ env = os.environ.get
 
 def http(method, url, headers=None, body=None, form=None, timeout=60):
     data = None
-    headers = dict((headers or {}).items())
+    headers = dict(headers.items()) if headers is not None else {}
     if form is not None:
         data = urllib.parse.urlencode(form).encode()
         headers["Content-Type"] = "application/x-www-form-urlencoded"

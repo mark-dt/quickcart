@@ -185,13 +185,18 @@ resource "dynatrace_automation_workflow" "quality_gate" {
       active      = true
       # Let the new version take traffic for the whole guardian window first.
       wait_before = var.gate_soak_seconds
+      # Input shape of the SRG "validate guardian" action (objectId = the
+      # guardian's settings object id; timeframe in DQL time syntax).
       input = jsonencode({
-        guardianId         = dynatrace_site_reliability_guardian.gate[each.key].id
+        objectId           = dynatrace_site_reliability_guardian.gate[each.key].id
+        executionId        = "{{ execution().id }}"
         timeframeInputType = "timeframeSelector"
         timeframeSelector = {
           from = var.gate_window
-          to   = "now"
+          to   = "now()"
         }
+        expressionFrom = ""
+        expressionTo   = ""
       })
       position {
         x = 0
