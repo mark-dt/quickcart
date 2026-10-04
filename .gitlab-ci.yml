@@ -2,9 +2,12 @@
 #
 #   merge request ─► dynatrace-plan (Step 1: what the service gets, as an MR comment)
 #   merge to main ─► dynatrace-apply ─► build ─► deploy-staging (ArgoCD) + deployment events (Step 2)
-#                 ─► quality-gate: Site Reliability Guardian, verdict as MR comment (Step 3)
-#                 ─► promote-production (ArgoCD) + deployment events
-#   Dynatrace auto-remediation workflow ─► pipeline with ROLLBACK=true ─► rollback-production (Step 4)
+#                 ─► quality-gate (Step 3): the staging deployment event triggers the
+#                    Site Reliability Guardian workflow in Dynatrace; on FAIL Dynatrace
+#                    starts a pipeline with ROLLBACK=true ROLLBACK_STAGE=staging. This
+#                    job waits for the verdict and comments it on the MR
+#                 ─► promote-production (ArgoCD) + deployment events (only on PASS)
+#   Dynatrace auto-remediation workflow ─► pipeline with ROLLBACK=true ─► rollback (Step 4)
 #
 # GitOps: the pipeline never touches the cluster directly. It builds images
 # (tag = short commit SHA) into the node's containerd, rewrites
@@ -18,7 +21,13 @@ variables:
     value: "false"
     options: ["false", "true"]
     description: "true = roll production back to the previous version (normally set by the Dynatrace remediation workflow)"
+  ROLLBACK_STAGE:
+    value: "production"
+    options: ["production", "staging"]
+    description: "Environment to roll back (staging: set by the quality-gate workflow on a FAIL)"
   ROLLBACK_SERVICE: ""
+  ROLLBACK_REASON: ""
+  DT_VALIDATION_URL: ""
   DT_PROBLEM_ID: ""
   DT_PROBLEM_URL: ""
   DT_CONFIG_ONLY:
@@ -28,9 +37,6 @@ variables:
   RELEASE_PRODUCT: quickcart-demo
   STAGING_NAMESPACE: quickcart-staging
   PRODUCTION_NAMESPACE: quickcart-production
-  # Traffic soak before the gate. Must cover the guardian's window (dynatrace/
-  # gate_window = now-4m) so only the new version is evaluated.
-  GATE_SOAK_SECONDS: "270"
   TF_ROOT: dynatrace
   TF_STATE_NAME: dynatrace
 
@@ -158,7 +164,8 @@ deploy-staging:
     url: https://staging.${WORKSHOP_IP}.nip.io
   script:
     - load_mr_context
-    - SHA="$(gitops_release staging "${CI_COMMIT_SHORT_SHA}" "deploy: staging ${CI_COMMIT_SHORT_SHA}")"
+    - |
+      SHA="$(gitops_release staging "${CI_COMMIT_SHORT_SHA}" "deploy: staging ${CI_COMMIT_SHORT_SHA}")"
     - argocd_sync_wait staging "${SHA}"
     - date -u +%s > staging-deployed-at
     - dt_deployment_events staging "${CI_COMMIT_SHORT_SHA}" deploy
@@ -174,20 +181,15 @@ quality-gate:
   needs: [deploy-staging]
   script:
     - load_mr_context
-    - |
-      DEPLOYED_AT="$(cat staging-deployed-at)"
-      WAIT=$(( DEPLOYED_AT + GATE_SOAK_SECONDS - $(date -u +%s) ))
-      if [ "${WAIT}" -gt 0 ]; then
-        log "Letting staging take traffic for ${WAIT}s before asking the Site Reliability Guardian..."
-        while [ "${WAIT}" -gt 0 ]; do echo "   ${WAIT}s"; S=$(( WAIT < 30 ? WAIT : 30 )); sleep "${S}"; WAIT=$(( WAIT - S )); done
-      fi
+    - log "Dynatrace validates the staging deployment (traffic soak + Site Reliability Guardian) — waiting for the verdict..."
     - terraform -chdir="${TF_ROOT}" output -json quality_gate_workflow_ids > gates.json
     - |
       RESULT=0
       : > gate-report.md
       for svc in $(python3 -c 'import json; print(" ".join(json.load(open("gates.json"))))'); do
         WF="$(python3 -c 'import json,sys; print(json.load(open("gates.json"))[sys.argv[1]])' "${svc}")"
-        python3 ci/dt.py gate --workflow-id "${WF}" --service "${svc}" --report "gate-${svc}.md" || RESULT=1
+        python3 ci/dt.py gate --workflow-id "${WF}" --service "${svc}" --version "${CI_COMMIT_SHORT_SHA}" \
+          --deployed-at "$(cat staging-deployed-at)" --report "gate-${svc}.md" || RESULT=1
         cat "gate-${svc}.md" >> gate-report.md
         echo >> gate-report.md
       done
@@ -207,40 +209,55 @@ promote-production:
     url: https://shop.${WORKSHOP_IP}.nip.io
   script:
     - load_mr_context
-    - SHA="$(gitops_release production "${CI_COMMIT_SHORT_SHA}" "deploy: production ${CI_COMMIT_SHORT_SHA}")"
+    - |
+      SHA="$(gitops_release production "${CI_COMMIT_SHORT_SHA}" "deploy: production ${CI_COMMIT_SHORT_SHA}")"
     - argocd_sync_wait production "${SHA}"
     - dt_deployment_events production "${CI_COMMIT_SHORT_SHA}" deploy
 
 # ─────────────────────────────── Step 4: auto-remediation ──────────────────
-rollback-production:
+rollback:
   stage: rollback
   rules:
     - if: $ROLLBACK == "true"
   environment:
-    name: production
-    url: https://shop.${WORKSHOP_IP}.nip.io
+    name: $ROLLBACK_STAGE
   script:
     - |
+      STAGE="${ROLLBACK_STAGE:-production}"
       git fetch -q origin "${CI_DEFAULT_BRANCH}"
-      FILE=deploy/overlays/production/kustomization.yaml
-      CURRENT="$(overlay_version production "origin/${CI_DEFAULT_BRANCH}")"
-      # Versions an earlier rollback moved away from are known-bad: skip them.
-      BAD=" $(git log --format=%s --grep='^rollback: production ' "origin/${CI_DEFAULT_BRANCH}" | awk '{print $3}' | tr '\n' ' ') "
+      FILE="deploy/overlays/${STAGE}/kustomization.yaml"
+      CURRENT="$(overlay_version "${STAGE}" "origin/${CI_DEFAULT_BRANCH}")"
+      # Versions an earlier rollback of this stage moved away from are known-bad: skip them.
+      BAD=" $(git log --format=%s --grep="^rollback: ${STAGE} " "origin/${CI_DEFAULT_BRANCH}" | awk '{print $3}' | tr '\n' ' ') "
       PREVIOUS=""
       for c in $(git log --format=%H "origin/${CI_DEFAULT_BRANCH}" -- "${FILE}"); do
-        v="$(overlay_version production "${c}")"
+        v="$(overlay_version "${STAGE}" "${c}")"
         if [ -n "${v}" ] && [ "${v}" != "${CURRENT}" ] && [[ "${BAD}" != *" ${v} "* ]]; then PREVIOUS="${v}"; break; fi
       done
       if [ -z "${PREVIOUS}" ]; then
-        echo "No earlier production version than ${CURRENT} in the history of ${FILE} — nothing to roll back to."
+        echo "No earlier ${STAGE} version than ${CURRENT} in the history of ${FILE} — nothing to roll back to."
         exit 1
       fi
-      log "Rolling production back: ${CURRENT} -> ${PREVIOUS} (Dynatrace problem ${DT_PROBLEM_ID:-n/a})"
+      REASON="${ROLLBACK_REASON:-Dynatrace problem ${DT_PROBLEM_ID:-n/a}}"
+      log "Rolling ${STAGE} back: ${CURRENT} -> ${PREVIOUS} (${REASON})"
       # Release context = the merge that shipped the faulty version (the
       # version IS that commit's short SHA)
       load_mr_context "$(git rev-parse -q --verify "${CURRENT}^{commit}" || echo "${CI_COMMIT_SHA}")"
-    - SHA="$(gitops_release production "${PREVIOUS}" "rollback: production ${CURRENT} -> ${PREVIOUS} (Dynatrace ${DT_PROBLEM_ID:-manual})")"
-    - argocd_sync_wait production "${SHA}"
     - |
-      EXTRA="$(python3 -c 'import json,sys; print(json.dumps({"rollback.from_version": sys.argv[1], "dt.problem.id": sys.argv[2], "dt.problem.url": sys.argv[3]}))' "${CURRENT}" "${DT_PROBLEM_ID}" "${DT_PROBLEM_URL}")"
-      dt_deployment_events production "${PREVIOUS}" rollback "${EXTRA}"
+      SHA="$(gitops_release "${STAGE}" "${PREVIOUS}" "rollback: ${STAGE} ${CURRENT} -> ${PREVIOUS} (${DT_PROBLEM_ID:-${REASON}})")"
+    - argocd_sync_wait "${STAGE}" "${SHA}"
+    - |
+      EXTRA="$(python3 -c 'import json,sys; print(json.dumps({k: v for k, v in {"rollback.from_version": sys.argv[1], "rollback.reason": sys.argv[2], "dt.problem.id": sys.argv[3], "dt.problem.url": sys.argv[4], "dt.validation.url": sys.argv[5]}.items() if v}))' "${CURRENT}" "${REASON}" "${DT_PROBLEM_ID}" "${DT_PROBLEM_URL}" "${DT_VALIDATION_URL}")"
+      dt_deployment_events "${STAGE}" "${PREVIOUS}" rollback "${EXTRA}"
+    - |
+      if [ -n "${MR_IID}" ]; then
+        {
+          echo "### ↩️ ${STAGE} rolled back: \`${CURRENT}\` → \`${PREVIOUS}\`"
+          echo
+          echo "Triggered by Dynatrace — ${REASON}."
+          [ -n "${DT_VALIDATION_URL}" ] && echo "[Guardian validation](${DT_VALIDATION_URL}) · "
+          [ -n "${DT_PROBLEM_URL}" ] && echo "[Davis problem](${DT_PROBLEM_URL}) · "
+          echo "[Rollback pipeline](${CI_PIPELINE_URL})"
+        } > rollback-note.md
+        mr_note "${MR_IID}" rollback-note.md
+      fi

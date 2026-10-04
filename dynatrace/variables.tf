@@ -77,6 +77,12 @@ variable "name_prefix" {
   description = "Every Dynatrace object created here starts with this prefix (shared tenant)."
 }
 
+variable "gate_soak_seconds" {
+  description = "Seconds the quality-gate workflow waits after the staging deployment event before validating. Must cover gate_window."
+  type        = number
+  default     = 270
+}
+
 variable "gate_window" {
   type        = string
   default     = "now-4m"

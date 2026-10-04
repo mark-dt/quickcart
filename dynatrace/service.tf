@@ -161,14 +161,30 @@ resource "dynatrace_automation_workflow" "quality_gate" {
   for_each = var.services
 
   title       = "${var.name_prefix} ${each.key} quality gate"
-  description = "Validates the ${each.key} guardian over the last staging window. Started by the GitLab pipeline; the result decides promotion to production."
+  description = "Triggered by every ${each.key} deployment to staging: validates the guardian after a traffic soak and, on FAIL, starts the GitLab rollback pipeline for staging. The release pipeline reads the verdict to decide promotion."
+
+  # The staging deployment event sent by the pipeline (deploy-staging) starts
+  # the validation. Rollback events ("<svc> rollback") deliberately don't match.
+  trigger {
+    event {
+      active = true
+      config {
+        event {
+          event_type = "events"
+          query      = "event.type == \"CUSTOM_DEPLOYMENT\" AND dt.event.deployment.release_product == \"${var.release_product}\" AND dt.event.deployment.release_stage == \"staging\" AND dt.event.deployment.name == \"${each.key} deploy\" AND k8s.cluster.name == \"${var.k8s_cluster}\""
+        }
+      }
+    }
+  }
 
   tasks {
     task {
       name        = "validate"
-      description = "Run the ${each.key} quality gate (Site Reliability Guardian) on staging"
+      description = "Run the ${each.key} quality gate (Site Reliability Guardian) on staging after the traffic soak"
       action      = "dynatrace.site.reliability.guardian:validate-guardian-action"
       active      = true
+      # Let the new version take traffic for the whole guardian window first.
+      wait_before = var.gate_soak_seconds
       input = jsonencode({
         guardianId         = dynatrace_site_reliability_guardian.gate[each.key].id
         timeframeInputType = "timeframeSelector"
@@ -180,6 +196,30 @@ resource "dynatrace_automation_workflow" "quality_gate" {
       position {
         x = 0
         y = 1
+      }
+    }
+    task {
+      name        = "rollback_staging"
+      description = "On FAIL: start the GitLab rollback pipeline for staging (ArgoCD syncs the previous version)"
+      action      = "dynatrace.automations:run-javascript"
+      active      = true
+      input = jsonencode({
+        script = templatefile("${path.module}/scripts/rollback_staging.js", {
+          cfg = jsonencode({
+            appsUrl   = var.dt_apps_url
+            gitlabUrl = var.gitlab_url
+            projectId = var.gitlab_project_id
+            gitlabPat = var.gitlab_pat
+            service   = each.key
+          })
+        })
+      })
+      conditions {
+        states = { validate = "OK" }
+      }
+      position {
+        x = 0
+        y = 2
       }
     }
   }

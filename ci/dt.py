@@ -7,10 +7,13 @@
       and pipeline link, so the deployment shows up on the service and Davis
       can correlate problems with it.
 
-  dt.py gate --workflow-id ID --service SVC --report FILE
-      Runs the service's quality-gate workflow (Site Reliability Guardian
-      validation) via the Automation API with an OAuth platform token, waits
-      for it and writes a markdown report. Exit 0 = pass/warning, 1 = fail.
+  dt.py gate --workflow-id ID --service SVC --version V --deployed-at TS --report FILE
+      The service's quality-gate workflow is started by Dynatrace itself (event
+      trigger on the staging deployment event): it soaks, validates the Site
+      Reliability Guardian and, on FAIL, starts the GitLab staging rollback.
+      This waits for that execution (OAuth platform token, Automation API),
+      reads the verdict and writes a markdown report for the MR.
+      Exit 0 = pass/warning, 1 = fail.
 
 Environment: DT_ENV_URL, DT_APPS_URL, DT_SSO_URL, DT_TENANT_ID, DT_API_TOKEN,
 DT_CLIENT_ID, DT_CLIENT_SECRET, K8_CLUSTER, RELEASE_PRODUCT, CI_* and MR_*.
@@ -115,28 +118,62 @@ def first(d, *keys, default=None):
     return default
 
 
+def find_triggered_execution(base, auth, workflow_id, version, not_before, wait_s):
+    """Execution of the gate workflow started by the staging deployment event
+    for this version (event trigger in dynatrace/service.tf)."""
+    deadline = time.time() + wait_s
+    seen = set()
+    while time.time() < deadline:
+        _, lst = http("GET", f"{base}/executions?workflow={workflow_id}&limit=20", headers=auth)
+        for ex in (lst.get("results") or []) if isinstance(lst, dict) else []:
+            if ex.get("workflow") not in (None, workflow_id) or ex["id"] in seen:
+                continue
+            _, det = http("GET", f"{base}/executions/{ex['id']}", headers=auth)
+            ev = (det.get("params") or {}).get("event") or {}
+            if ev.get("dt.event.deployment.version") == version:
+                return ex["id"]
+            started = det.get("startedAt") or ""
+            if started and started < not_before:
+                seen.add(ex["id"])
+        time.sleep(10)
+    return None
+
+
 def cmd_gate(a):
     token = platform_token("automation:workflows:read automation:workflows:run")
     auth = {"Authorization": f"Bearer {token}"}
     base = f"{env('DT_APPS_URL')}/platform/automation/v1"
+    not_before = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(a.deployed_at - 60))
 
-    status, run = http("POST", f"{base}/workflows/{a.workflow_id}/run", headers=auth, body={})
-    if status >= 300 or "id" not in run:
-        sys.exit(f"could not start quality-gate workflow {a.workflow_id}: HTTP {status} {json.dumps(run)[:300]}")
-    exec_id = run["id"]
+    # Dynatrace starts the validation itself from the staging deployment event.
+    exec_id = find_triggered_execution(base, auth, a.workflow_id, a.version, not_before, a.trigger_wait)
+    triggered = exec_id is not None
+    if not triggered:
+        print(f"   !! no execution of the quality-gate workflow was triggered by the deployment event "
+              f"within {a.trigger_wait}s — check the workflow's event trigger. Starting it directly.")
+        status, run = http("POST", f"{base}/workflows/{a.workflow_id}/run", headers=auth, body={})
+        if status >= 300 or "id" not in run:
+            sys.exit(f"could not start quality-gate workflow {a.workflow_id}: HTTP {status} {json.dumps(run)[:300]}")
+        exec_id = run["id"]
     exec_url = f"{env('DT_APPS_URL')}/ui/apps/dynatrace.automations/executions/{exec_id}"
-    print(f"   quality gate for {a.service}: workflow execution {exec_url}")
+    print(f"   quality gate for {a.service} {a.version}: {exec_url} "
+          f"({'triggered by the deployment event' if triggered else 'started by the pipeline'})")
 
     state = "RUNNING"
-    for _ in range(120):
-        time.sleep(5)
+    for i in range(240):
         _, ex = http("GET", f"{base}/executions/{exec_id}", headers=auth)
         state = ex.get("state", state)
         if state not in ("RUNNING", "WAITING", "IDLE"):
             break
+        if i % 6 == 0:
+            print(f"   waiting for the guardian ({state})...")
+        time.sleep(10)
     _, result = http("GET", f"{base}/executions/{exec_id}/tasks/validate/result", headers=auth)
     if not isinstance(result, dict):
         result = {}
+    _, rollback = http("GET", f"{base}/executions/{exec_id}/tasks/rollback_staging/result", headers=auth)
+    if not isinstance(rollback, dict):
+        rollback = {}
 
     # Site Reliability Guardian validation result. Read defensively: the
     # status/objective field names have shifted between SRG versions.
@@ -167,6 +204,11 @@ def cmd_gate(a):
             ri = {"pass": "✅", "warning": "⚠️", "fail": "❌"}.get(r["status"], "⛔")
             lines.append(f"| {r['name']} | {ri} {r['status']} | {r['value']} | {r['target']} | {r['warning']} |")
         lines.append("")
+    if verdict not in ("pass", "warning"):
+        if rollback.get("rolledBack"):
+            lines.append(f"↩️ **Dynatrace rolled staging back** to the previous version "
+                         f"([rollback pipeline]({rollback.get('pipelineUrl') or ''})).")
+            lines.append("")
     if verdict == "fail":
         lines.append("**Production was not touched.** Fix the failed objectives and merge again.")
     elif verdict in ("pass", "warning"):
@@ -195,6 +237,9 @@ def main():
     e.add_argument("services", nargs="+")
     g = sub.add_parser("gate")
     g.add_argument("--workflow-id", required=True)
+    g.add_argument("--version", required=True)
+    g.add_argument("--deployed-at", type=int, required=True, help="unix time of the staging deployment")
+    g.add_argument("--trigger-wait", type=int, default=180, help="seconds to wait for the event-triggered execution")
     g.add_argument("--service", required=True)
     g.add_argument("--report", required=True)
     a = p.parse_args()
