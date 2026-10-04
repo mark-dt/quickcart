@@ -88,11 +88,14 @@ resource "dynatrace_davis_anomaly_detectors" "prod_failure_rate" {
     name = "dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer"
     input {
       analyzer_input_field {
-        key   = "query"
+        key = "query"
+        # Metric timeseries (not spans/makeTimeseries): anomaly detectors only
+        # accept a plain timeseries query with interval:1m and no timeframe.
         value = <<-DQL
-          fetch spans
-          | filter ${local.span_filter[each.key].production}
-          | makeTimeseries {total = count(), failed = countIf(request.is_failed == true)}, by: {dt.entity.service}
+          timeseries {total = sum(dt.service.request.count), failed = sum(dt.service.request.failure_count)},
+            by: {dt.entity.service, k8s.namespace.name, k8s.cluster.name, k8s.workload.name},
+            filter: k8s.cluster.name == "${var.k8s_cluster}" and k8s.namespace.name == "${var.production_namespace}" and k8s.workload.name == "${each.key}",
+            interval: 1m
           | fieldsAdd failure_rate = 100 * failed[] / total[]
           | fieldsRemove total, failed
         DQL
