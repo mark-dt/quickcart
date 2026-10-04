@@ -42,7 +42,7 @@ resource "dynatrace_platform_slo" "availability" {
 resource "dynatrace_site_reliability_guardian" "gate" {
   for_each = var.services
 
-  name        = "${var.name_prefix} ${each.key} quality gate"
+  name        = "${each.key} quality gate"
   description = "Staging release check for ${each.key}. Run by the GitLab pipeline after every staging deployment; production is only touched if this passes."
   tags        = ["service:${each.key}", "stage:staging"]
 
