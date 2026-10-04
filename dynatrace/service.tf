@@ -92,7 +92,7 @@ resource "dynatrace_davis_anomaly_detectors" "prod_failure_rate" {
         value = <<-DQL
           fetch spans
           | filter ${local.span_filter[each.key].production}
-          | makeTimeseries {total = count(), failed = countIf(request.is_failed == true)}, by: {dt.entity.service}, interval: 1m
+          | makeTimeseries {total = count(), failed = countIf(request.is_failed == true)}, by: {dt.entity.service}
           | fieldsAdd failure_rate = 100 * failed[] / total[]
           | fieldsRemove total, failed
         DQL
