@@ -1,13 +1,13 @@
-# atruvia demo — prepared merge requests
+# Quality-gate exercise — prepared merge requests
 
-The presenter opens these on the demo VM with `quickcart-demo mr <nn>`. Each
-scenario is a set of complete files copied over `main` on a new branch, plus
-the MR text (`mr.md`). The full run script is in the aiops-lab repo:
-`doc/04-atruvia-demo.md`.
+Open them on the VM with `quickcart-demo mr <nn>`, then merge in GitLab.
+Each scenario is a set of complete files copied over `main` on a new branch,
+plus the MR text (`mr.md`).
 
-| Scenario | Step | Outcome |
-|---|---|---|
-| `01-new-service-observability` | 1 — service ready by default | `dynatrace-plan` comments what inventory-service gets; merge applies it |
-| `02-loyalty-points` | 2 — feature + deploy | staging deploy + deployment events; gate passes → production |
-| `03-loyalty-customer-tiers` | 3 — quality gate | slow, flaky tier lookup → gate fails, MR comment, production untouched |
-| `04-loyalty-tier-cache` | 4 — auto-remediation | passes the gate, breaks 5 min after rollout → Davis → rollback + GitLab issue |
+| Scenario | What happens |
+|---|---|
+| `01-loyalty-points` | healthy feature → staging → Site Reliability Guardian **PASS** → production |
+| `02-loyalty-customer-tiers` | slow, flaky tier lookup → guardian **FAIL** → Dynatrace rolls staging back, production untouched |
+
+`quickcart-demo reset` puts the code and both environments back to the initial
+snapshot so the exercise can be run again.

@@ -7,7 +7,7 @@
       and pipeline link, so the deployment shows up on the service and Davis
       can correlate problems with it.
 
-  dt.py gate --workflow-id ID --service SVC --version V --deployed-at TS --report FILE
+  dt.py gate --workflow-title T --service SVC --version V --deployed-at TS --report FILE
       The service's quality-gate workflow is started by Dynatrace itself (event
       trigger on the staging deployment event): it soaks, validates the Site
       Reliability Guardian and, on FAIL, starts the GitLab staging rollback.
@@ -166,6 +166,13 @@ def find_triggered_execution(base, auth, workflow_id, version, not_before, wait_
 def cmd_gate(a):
     auth = Auth()
     base = f"{env('DT_APPS_URL')}/platform/automation/v1"
+
+    # The workflow is created per VM by the aiops-lab Terraform; find it by title.
+    _, lst = http("GET", f"{base}/workflows?search={urllib.parse.quote(a.workflow_title)}&limit=50", headers=auth)
+    ids = [w["id"] for w in (lst.get("results") or []) if w.get("title") == a.workflow_title]
+    if not ids:
+        sys.exit(f"quality-gate workflow '{a.workflow_title}' not found in Dynatrace")
+    a.workflow_id = ids[0]
     not_before = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(a.deployed_at - 60))
 
     # Dynatrace starts the validation itself from the staging deployment event.
@@ -256,7 +263,7 @@ def main():
     e.add_argument("--extra", default="{}")
     e.add_argument("services", nargs="+")
     g = sub.add_parser("gate")
-    g.add_argument("--workflow-id", required=True)
+    g.add_argument("--workflow-title", required=True)
     g.add_argument("--version", required=True)
     g.add_argument("--deployed-at", type=int, required=True, help="unix time of the staging deployment")
     g.add_argument("--trigger-wait", type=int, default=180, help="seconds to wait for the event-triggered execution")

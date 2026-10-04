@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuickCart</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242736;
+      --border: #2e3142;
+      --text: #e4e6f0;
+      --text-muted: #8b8fa3;
+      --accent: #6c5ce7;
+      --accent-light: #a29bfe;
+      --green: #00cec9;
+      --red: #fd7272;
+      --orange: #fdcb6e;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--green));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 400;
+    }
+
+    .health-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.8rem;
+      background: var(--surface2);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .release-badge {
+      padding: 0.4rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .release-badge.staging { color: var(--orange); border-color: var(--orange); }
+    .release-badge.production { color: var(--green); border-color: var(--green); }
+
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+
+    .card h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+
+    .architecture {
+      grid-column: 1 / -1;
+    }
+
+    .arch-diagram {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1rem 0;
+    }
+
+    .arch-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+    }
+
+    .arch-node {
+      padding: 0.6rem 1.2rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      text-align: center;
+      min-width: 140px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .arch-node.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(108, 92, 231, 0.3);
+    }
+
+    .arch-node .port {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-top: 2px;
+    }
+
+    .arch-arrow {
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+
+    .order-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .order-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--surface2);
+      border-radius: 8px;
+    }
+
+    .item-name {
+      font-weight: 500;
+    }
+
+    .item-price {
+      color: var(--green);
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+      color: white;
+    }
+
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #845ef7);
+      width: 100%;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+
+    .btn-auto {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 0.5rem 1rem;
+    }
+
+    .btn-auto.running {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .order-controls {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .order-controls .btn-primary {
+      flex: 1;
+    }
+
+    .feed {
+      grid-column: 1 / -1;
+    }
+
+    .feed-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .feed-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .feed-list::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .feed-entry {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 1rem;
+      align-items: center;
+      padding: 0.6rem 0.8rem;
+      background: var(--surface2);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .feed-id {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: var(--accent-light);
+      font-size: 0.8rem;
+    }
+
+    .feed-services {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .svc-tag {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .svc-tag.ok { background: rgba(0, 206, 201, 0.15); color: var(--green); }
+    .svc-tag.fail { background: rgba(253, 114, 114, 0.15); color: var(--red); }
+
+    .feed-amount {
+      font-weight: 600;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .feed-duration {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      min-width: 50px;
+      text-align: right;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      grid-column: 1 / -1;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 0.3rem;
+    }
+
+    .stat-value.green { color: var(--green); }
+    .stat-value.red { color: var(--red); }
+    .stat-value.orange { color: var(--orange); }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 700px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 1rem;
+      }
+      .architecture, .feed, .stats-row {
+        grid-column: 1;
+      }
+      .stats-row {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="logo">
+        <div class="logo-icon">Q</div>
+        QuickCart
+      </div>
+      <div class="subtitle">Microservices Order Processing Demo</div>
+    </div>
+    <div class="release-badge" id="releaseBadge" title="Release stage and version (git commit)"></div>
+    <div class="health-badge">
+      <div class="health-dot" id="healthDot"></div>
+      <span id="healthText">Connected</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-value green" id="statTotal">0</div>
+        <div class="stat-label">Total Orders</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value red" id="statFailed">0</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value orange" id="statAvgMs">—</div>
+        <div class="stat-label">Avg Latency (ms)</div>
+      </div>
+    </div>
+
+    <div class="card architecture">
+      <h2>Service Architecture</h2>
+      <div class="arch-diagram">
+        <div class="arch-row">
+          <div class="arch-node" id="node-frontend">
+            <div>frontend</div>
+            <div class="port">:3000</div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+          <div class="arch-node" id="node-order">
+            <div>order-service</div>
+            <div class="port">:3001</div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓ &nbsp; ↓</div>
+        <div class="arch-row">
+          <div class="arch-node" id="node-payment">
+            <div>payment-service</div>
+            <div class="port">:3002</div>
+          </div>
+          <div class="arch-node" id="node-inventory">
+            <div>inventory-service</div>
+            <div class="port">:3003</div>
+          </div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-row">
+          <div class="arch-node" id="node-notification">
+            <div>notification-service</div>
+            <div class="port">:3004</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card order-panel">
+      <h2>Place Order</h2>
+      <div class="order-item">
+        <div>
+          <div class="item-name">Widget Pro</div>
+          <div style="color: var(--text-muted); font-size: 0.8rem;">SKU: WIDGET-1 &middot; Qty: 1</div>
+        </div>
+        <div class="item-price">$49.99</div>
+      </div>
+      <div class="order-controls">
+        <button class="btn btn-primary" id="orderBtn" onclick="placeOrder()">Place Order</button>
+        <button class="btn btn-auto" id="autoBtn" onclick="toggleAuto()">Auto</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Last Result</h2>
+      <pre id="lastResult" style="font-size: 0.8rem; line-height: 1.5; color: var(--text-muted); white-space: pre-wrap; word-break: break-all; min-height: 100px;">Click "Place Order" to begin</pre>
+    </div>
+
+    <div class="card feed">
+      <h2>Order Feed</h2>
+      <div class="feed-list" id="feedList">
+        <div class="empty-state">No orders yet</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let totalOrders = 0;
+    let failedOrders = 0;
+    let totalMs = 0;
+    let autoInterval = null;
+
+    async function placeOrder() {
+      const btn = document.getElementById('orderBtn');
+      btn.disabled = true;
+
+      highlightNodes();
+
+      const start = performance.now();
+      try {
+        const res = await fetch('/order');
+        const duration = Math.round(performance.now() - start);
+        const data = await res.json();
+
+        totalOrders++;
+        totalMs += duration;
+        const success = res.ok && data.status === 'confirmed';
+        if (!success) failedOrders++;
+
+        updateStats();
+        showResult(data, duration, res.status);
+        addFeedEntry(data, duration, success);
+      } catch (err) {
+        const duration = Math.round(performance.now() - start);
+        totalOrders++;
+        failedOrders++;
+        totalMs += duration;
+        updateStats();
+        showResult({ error: err.message }, duration, 0);
+        addFeedEntry({ orderId: '???', error: err.message }, duration, false);
+      }
+
+      btn.disabled = false;
+    }
+
+    function highlightNodes() {
+      const ids = ['node-frontend', 'node-order', 'node-payment', 'node-inventory', 'node-notification'];
+      ids.forEach((id, i) => {
+        const el = document.getElementById(id);
+        setTimeout(() => {
+          el.classList.add('active');
+          setTimeout(() => el.classList.remove('active'), 600);
+        }, i * 120);
+      });
+    }
+
+    function updateStats() {
+      document.getElementById('statTotal').textContent = totalOrders;
+      document.getElementById('statFailed').textContent = failedOrders;
+      document.getElementById('statAvgMs').textContent = totalOrders > 0 ? Math.round(totalMs / totalOrders) : '—';
+    }
+
+    function showResult(data, duration, status) {
+      const el = document.getElementById('lastResult');
+      el.textContent = `HTTP ${status} (${duration}ms)\n${JSON.stringify(data, null, 2)}`;
+    }
+
+    function addFeedEntry(data, duration, success) {
+      const list = document.getElementById('feedList');
+      if (list.querySelector('.empty-state')) list.innerHTML = '';
+
+      const orderId = data.orderId || '???';
+      const payOk = data.payment?.paymentStatus === 'confirmed';
+      const invOk = data.inventory?.inStock !== false;
+      const points = data.payment?.loyaltyPoints;
+
+      const entry = document.createElement('div');
+      entry.className = 'feed-entry';
+      entry.innerHTML = `
+        <span class="feed-id">${orderId}</span>
+        <span class="feed-services">
+          <span class="svc-tag ${payOk ? 'ok' : 'fail'}">${payOk ? 'paid' : 'pay fail'}</span>
+          <span class="svc-tag ${invOk ? 'ok' : 'fail'}">${invOk ? 'in stock' : 'no stock'}</span>
+          ${points ? `<span class="svc-tag ok">+${points} pts</span>` : ''}
+        </span>
+        <span class="feed-amount">$49.99</span>
+        <span class="feed-duration">${duration}ms</span>
+      `;
+
+      list.prepend(entry);
+
+      // Keep max 50 entries
+      while (list.children.length > 50) list.lastChild.remove();
+    }
+
+    function toggleAuto() {
+      const btn = document.getElementById('autoBtn');
+      if (autoInterval) {
+        clearInterval(autoInterval);
+        autoInterval = null;
+        btn.classList.remove('running');
+        btn.textContent = 'Auto';
+      } else {
+        autoInterval = setInterval(placeOrder, 2000);
+        btn.classList.add('running');
+        btn.textContent = 'Stop';
+        placeOrder();
+      }
+    }
+
+    // Health check
+    async function checkHealth() {
+      try {
+        const res = await fetch('/health');
+        const dot = document.getElementById('healthDot');
+        const text = document.getElementById('healthText');
+        const info = await res.json().catch(() => ({}));
+        const badge = document.getElementById('releaseBadge');
+        if (info.stage) {
+          badge.textContent = `${info.stage.toUpperCase()} · ${info.version}`;
+          badge.className = `release-badge ${info.stage}`;
+        }
+        if (res.ok) {
+          dot.style.background = 'var(--green)';
+          text.textContent = 'Connected';
+        } else {
+          dot.style.background = 'var(--red)';
+          text.textContent = 'Degraded';
+        }
+      } catch {
+        document.getElementById('healthDot').style.background = 'var(--red)';
+        document.getElementById('healthText').textContent = 'Disconnected';
+      }
+    }
+
+    checkHealth();
+    setInterval(checkHealth, 10000);
+  </script>
+</body>
+</html>
