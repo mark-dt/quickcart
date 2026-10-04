@@ -210,6 +210,11 @@ quality-gate:
         cat "gate-${svc}.md" >> gate-report.md
         echo >> gate-report.md
       done
+      if [ "${RESULT}" = 0 ]; then
+        echo "**All guardians passed — promoting ${CI_COMMIT_SHORT_SHA} to production.**" >> gate-report.md
+      else
+        echo "**Quality gate failed — production was not touched.** Fix the failed objectives and merge again." >> gate-report.md
+      fi
       if [ -n "${MR_IID}" ]; then mr_note "${MR_IID}" gate-report.md; fi
       exit "${RESULT}"
   artifacts:

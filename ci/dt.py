@@ -204,7 +204,8 @@ def cmd_gate(a):
         rows.append({
             "name": first(o, "name", "objective_name", default="?"),
             "status": str(first(o, "status", default="?")).lower(),
-            "value": first(o, "value", "display_value", default="—"),
+            "value": (round(o["value"], 2) if isinstance(o.get("value"), (int, float))
+                      else first(o, "display_value", default="—")),
             "target": first(o, "target", default="—"),
             "warning": first(o, "warning", default="—"),
         })
@@ -229,11 +230,7 @@ def cmd_gate(a):
             lines.append(f"↩️ **Dynatrace rolled staging back** to the previous version "
                          f"([rollback pipeline]({rollback.get('pipelineUrl') or ''})).")
             lines.append("")
-    if verdict == "fail":
-        lines.append("**Production was not touched.** Fix the failed objectives and merge again.")
-    elif verdict in ("pass", "warning"):
-        lines.append("Promoting to **production**.")
-    else:
+    if verdict not in ("pass", "warning", "fail"):
         lines.append(f"The validation did not produce a verdict (workflow state `{state}`) — treating it as failed.")
     lines += ["", f"[Validation details in Dynatrace]({srg_url}) · [Workflow execution]({exec_url})"]
 
