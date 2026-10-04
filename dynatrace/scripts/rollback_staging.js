@@ -49,6 +49,9 @@ export default async function ({ execution_id }) {
       variables: [
         { key: 'ROLLBACK', value: 'true' },
         { key: 'ROLLBACK_STAGE', value: 'staging' },
+        // Idempotency: duplicate service entities can fire this workflow twice
+        // for one deployment — the pipeline only rolls back from this version.
+        { key: 'ROLLBACK_FROM_VERSION', value: version },
         { key: 'ROLLBACK_SERVICE', value: CFG.service },
         { key: 'ROLLBACK_REASON', value: 'Site Reliability Guardian: ' + verdict.toUpperCase() + ' for ' + version },
         { key: 'DT_VALIDATION_URL', value: executionUrl },

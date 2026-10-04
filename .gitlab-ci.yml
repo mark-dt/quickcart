@@ -26,6 +26,9 @@ variables:
     options: ["production", "staging"]
     description: "Environment to roll back (staging: set by the quality-gate workflow on a FAIL)"
   ROLLBACK_SERVICE: ""
+  # Version to roll back FROM. If the stage no longer runs it (a duplicate
+  # request already rolled it back), the rollback job does nothing.
+  ROLLBACK_FROM_VERSION: ""
   ROLLBACK_REASON: ""
   DT_VALIDATION_URL: ""
   DT_PROBLEM_ID: ""
@@ -227,6 +230,10 @@ rollback:
       git fetch -q origin "${CI_DEFAULT_BRANCH}"
       FILE="deploy/overlays/${STAGE}/kustomization.yaml"
       CURRENT="$(overlay_version "${STAGE}" "origin/${CI_DEFAULT_BRANCH}")"
+      if [ -n "${ROLLBACK_FROM_VERSION}" ] && [ "${ROLLBACK_FROM_VERSION}" != "${CURRENT}" ]; then
+        log "${STAGE} no longer runs ${ROLLBACK_FROM_VERSION} (now ${CURRENT}) — already rolled back, nothing to do."
+        exit 0
+      fi
       # Versions an earlier rollback of this stage moved away from are known-bad: skip them.
       BAD=" $(git log --format=%s --grep="^rollback: ${STAGE} " "origin/${CI_DEFAULT_BRANCH}" | awk '{print $3}' | tr '\n' ' ') "
       PREVIOUS=""

@@ -21,6 +21,8 @@ export default async function ({ execution_id }) {
       variables: [
         { key: 'ROLLBACK', value: 'true' },
         { key: 'ROLLBACK_SERVICE', value: dep.service },
+        // Idempotency: only roll back if production still runs this version.
+        { key: 'ROLLBACK_FROM_VERSION', value: dep.version },
         { key: 'DT_PROBLEM_ID', value: dep.displayId },
         { key: 'DT_PROBLEM_URL', value: dep.problemUrl },
       ],
