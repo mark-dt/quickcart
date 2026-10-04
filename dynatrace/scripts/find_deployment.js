@@ -51,13 +51,13 @@ export default async function ({ execution_id }) {
   const query = [
     'fetch events, from: now()-6h',
     '| filter event.type == "CUSTOM_DEPLOYMENT"',
-    '| filter dt.event.deployment.release_product == ' + dqlString(CFG.releaseProduct),
-    '| filter dt.event.deployment.release_stage == "production"',
+    '| filter deployment.release_product == ' + dqlString(CFG.releaseProduct),
+    '| filter deployment.release_stage == "production"',
     '| filter k8s.cluster.name == ' + dqlString(CFG.cluster),
     '| filter in(toString(dt.source_entity), array(' + entityIds.map(dqlString).join(', ') + '))',
     '| sort timestamp desc',
     '| limit 1',
-    '| fields timestamp, service.name, dt.event.deployment.name, dt.event.deployment.version, git.commit.sha, git.commit.url,',
+    '| fields timestamp, service.name, deployment.name, deployment.version, git.commit.sha, git.commit.url,',
     '         gitlab.merge_request.url, gitlab.merge_request.iid, gitlab.merge_request.author, gitlab.pipeline.url',
   ].join('\n');
 
@@ -71,15 +71,15 @@ export default async function ({ execution_id }) {
   const d = records[0];
   // The latest production change is already a rollback: this problem is the
   // tail of the incident we just remediated — never roll back twice.
-  if (String(d['dt.event.deployment.name'] || '').endsWith(' rollback')) {
+  if (String(d['deployment.name'] || '').endsWith(' rollback')) {
     console.log('Latest production change for problem ' + displayId + ' is already a rollback (' +
-      d['dt.event.deployment.version'] + ') — skipping.');
+      d['deployment.version'] + ') — skipping.');
     return notFound;
   }
   const result = {
     found: true,
     service: d['service.name'],
-    version: d['dt.event.deployment.version'],
+    version: d['deployment.version'],
     commit: d['git.commit.sha'],
     commitUrl: d['git.commit.url'],
     mergeRequestUrl: d['gitlab.merge_request.url'],

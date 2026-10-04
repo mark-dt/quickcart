@@ -32,7 +32,7 @@ env = os.environ.get
 
 def http(method, url, headers=None, body=None, form=None, timeout=60):
     data = None
-    headers = dict(headers or {})
+    headers = dict((headers or {}).items())
     if form is not None:
         data = urllib.parse.urlencode(form).encode()
         headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -53,6 +53,9 @@ def http(method, url, headers=None, body=None, form=None, timeout=60):
 
 
 # --------------------------------------------------------------- events
+# Note: the classic events API stores the reserved dt.event.deployment.<x>
+# properties in Grail as deployment.<x> — DQL, workflow triggers and the
+# remediation scripts must read deployment.version, deployment.release_stage, ...
 def cmd_event(a):
     extra = json.loads(a.extra or "{}")
     commit_url = f"{env('CI_PROJECT_URL')}/-/commit/{env('CI_COMMIT_SHA')}"
@@ -98,7 +101,14 @@ def cmd_event(a):
 
 
 # ----------------------------------------------------------- quality gate
+_TOKEN = {"value": None, "expires": 0.0, "scopes": None}
+
+
 def platform_token(scopes):
+    """OAuth platform token, cached and refreshed a minute before expiry
+    (tokens live ~5 min — the gate polls far longer than that)."""
+    if _TOKEN["value"] and _TOKEN["scopes"] == scopes and time.time() < _TOKEN["expires"] - 60:
+        return _TOKEN["value"]
     status, resp = http("POST", env("DT_SSO_URL"), form={
         "grant_type": "client_credentials",
         "client_id": env("DT_CLIENT_ID"),
@@ -108,7 +118,18 @@ def platform_token(scopes):
     })
     if status != 200 or "access_token" not in resp:
         sys.exit(f"OAuth token request failed: HTTP {status} {json.dumps(resp)[:300]}")
-    return resp["access_token"]
+    _TOKEN.update(value=resp["access_token"], scopes=scopes,
+                  expires=time.time() + float(resp.get("expires_in", 300)))
+    return _TOKEN["value"]
+
+
+GATE_SCOPES = "automation:workflows:read automation:workflows:run"
+
+
+class Auth(dict):
+    """Headers mapping that always carries a fresh bearer token."""
+    def items(self):
+        return {"Authorization": f"Bearer {platform_token(GATE_SCOPES)}"}.items()
 
 
 def first(d, *keys, default=None):
@@ -130,7 +151,7 @@ def find_triggered_execution(base, auth, workflow_id, version, not_before, wait_
                 continue
             _, det = http("GET", f"{base}/executions/{ex['id']}", headers=auth)
             ev = (det.get("params") or {}).get("event") or {}
-            if ev.get("dt.event.deployment.version") == version:
+            if ev.get("deployment.version") == version:
                 return ex["id"]
             started = det.get("startedAt") or ""
             if started and started < not_before:
@@ -140,8 +161,7 @@ def find_triggered_execution(base, auth, workflow_id, version, not_before, wait_
 
 
 def cmd_gate(a):
-    token = platform_token("automation:workflows:read automation:workflows:run")
-    auth = {"Authorization": f"Bearer {token}"}
+    auth = Auth()
     base = f"{env('DT_APPS_URL')}/platform/automation/v1"
     not_before = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(a.deployed_at - 60))
 

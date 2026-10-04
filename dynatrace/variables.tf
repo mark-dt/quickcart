@@ -92,7 +92,7 @@ variable "gate_window" {
 variable "release_product" {
   type        = string
   default     = "quickcart-demo"
-  description = "dt.event.deployment.release_product on the pipeline's deployment events"
+  description = "release product on the pipeline's deployment events (sent as dt.event.deployment.release_product, stored in Grail as deployment.release_product)"
 }
 
 # --- The part a developer edits (services.auto.tfvars) ---

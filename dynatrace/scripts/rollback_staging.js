@@ -21,7 +21,7 @@ export default async function ({ execution_id }) {
   const exResp = await fetch('/platform/automation/v1/executions/' + execution_id);
   const exData = await exResp.json();
   const event = (exData.params && exData.params.event) || {};
-  const version = event['dt.event.deployment.version'] || 'unknown';
+  const version = event['deployment.version'] || 'unknown';
 
   let srg = {};
   try {

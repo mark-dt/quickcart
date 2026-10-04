@@ -134,6 +134,6 @@ argocd_sync_wait() {
 dt_deployment_events() {
   local extra="${4:-}"
   [ -n "${extra}" ] || extra='{}'
-  python3 "${CI_DIR}/dt.py" event --stage "$1" --version "$2" --name "$3" \
+  python3 -u "${CI_DIR}/dt.py" event --stage "$1" --version "$2" --name "$3" \
     --namespace "$(namespace_for "$1")" --extra "${extra}" ${SERVICES}
 }

@@ -188,7 +188,7 @@ quality-gate:
       : > gate-report.md
       for svc in $(python3 -c 'import json; print(" ".join(json.load(open("gates.json"))))'); do
         WF="$(python3 -c 'import json,sys; print(json.load(open("gates.json"))[sys.argv[1]])' "${svc}")"
-        python3 ci/dt.py gate --workflow-id "${WF}" --service "${svc}" --version "${CI_COMMIT_SHORT_SHA}" \
+        python3 -u ci/dt.py gate --workflow-id "${WF}" --service "${svc}" --version "${CI_COMMIT_SHORT_SHA}" \
           --deployed-at "$(cat staging-deployed-at)" --report "gate-${svc}.md" || RESULT=1
         cat "gate-${svc}.md" >> gate-report.md
         echo >> gate-report.md

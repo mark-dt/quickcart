@@ -171,7 +171,7 @@ resource "dynatrace_automation_workflow" "quality_gate" {
       config {
         event {
           event_type = "events"
-          query      = "event.type == \"CUSTOM_DEPLOYMENT\" AND dt.event.deployment.release_product == \"${var.release_product}\" AND dt.event.deployment.release_stage == \"staging\" AND dt.event.deployment.name == \"${each.key} deploy\" AND k8s.cluster.name == \"${var.k8s_cluster}\""
+          query      = "event.type == \"CUSTOM_DEPLOYMENT\" AND deployment.release_product == \"${var.release_product}\" AND deployment.release_stage == \"staging\" AND deployment.name == \"${each.key} deploy\" AND k8s.cluster.name == \"${var.k8s_cluster}\""
         }
       }
     }
@@ -189,8 +189,8 @@ resource "dynatrace_automation_workflow" "quality_gate" {
         guardianId         = dynatrace_site_reliability_guardian.gate[each.key].id
         timeframeInputType = "timeframeSelector"
         timeframeSelector = {
-          timeframeFrom = var.gate_window
-          timeframeTo   = "now"
+          from = var.gate_window
+          to   = "now"
         }
       })
       position {
