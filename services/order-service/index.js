@@ -26,6 +26,8 @@ function tc() {
 const app = express();
 app.use(traceMiddleware);
 const PORT = process.env.PORT || 3001;
+// Release metadata (set by the deploy overlay; also what OneAgent reports)
+const RELEASE = { version: process.env.DT_RELEASE_VERSION || "dev", stage: process.env.DT_RELEASE_STAGE || "local" };
 const PAYMENT_SERVICE = process.env.PAYMENT_SERVICE_URL || "http://payment-service.workshop.svc.cluster.local:3002";
 const INVENTORY_SERVICE = process.env.INVENTORY_SERVICE_URL || "http://inventory-service.workshop.svc.cluster.local:3003";
 
@@ -46,7 +48,7 @@ function fetch(url) {
 }
 
 app.get("/health", (req, res) => {
-  res.json({ service: "order-service", status: "ok" });
+  res.json({ service: "order-service", status: "ok", ...RELEASE });
 });
 
 app.get("/order", async (req, res) => {

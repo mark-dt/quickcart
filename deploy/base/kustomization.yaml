@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# QuickCart demo base (atruvia-demo). Environment-specific bits live in
+# ../overlays/<stage>: namespace, image tag (= git short SHA, set by CI) and
+# the `release` ConfigMap (STAGE / VERSION -> DT_RELEASE_STAGE / DT_RELEASE_VERSION,
+# which OneAgent reports as the release stage and version of every service).
+resources:
+  - frontend.yaml
+  - order-service.yaml
+  - payment-service.yaml
+  - inventory-service.yaml
+  - notification-service.yaml
+  - load-generator.yaml

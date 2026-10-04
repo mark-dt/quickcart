@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  labels:
+    app: payment-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        dt.owner: workshop-aiops-lab-demo-payments
+        app.kubernetes.io/part-of: "quickcart-demo"
+    spec:
+      containers:
+        - name: payment-service
+          image: workshop/payment-service
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3002
+          env:
+            - name: PORT
+              value: "3002"
+            - name: FAILURE_RATE
+              value: "0"
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification-service:3004"
+            - name: DT_RELEASE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: release
+                  key: VERSION
+            - name: DT_RELEASE_PRODUCT
+              value: "quickcart-demo"
+            - name: DT_RELEASE_STAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: release
+                  key: STAGE
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service-headless
+spec:
+  clusterIP: None
+  selector:
+    app: payment-service
+  ports:
+    - port: 3002
+      targetPort: 3002

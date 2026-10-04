@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Managed by the pipeline: deploy-staging rewrites VERSION and every newTag
+# to the commit's short SHA; ArgoCD app quickcart-staging syncs this directory.
+namespace: quickcart-staging
+
+resources:
+  - ../../base
+
+configMapGenerator:
+  - name: release
+    literals:
+      - STAGE=staging
+      - VERSION=initial
+
+images:
+  - name: workshop/frontend
+    newTag: initial
+  - name: workshop/order-service
+    newTag: initial
+  - name: workshop/payment-service
+    newTag: initial
+  - name: workshop/inventory-service
+    newTag: initial
+  - name: workshop/notification-service
+    newTag: initial
+
+# Staging runs one replica per service to keep the VM light.
+patches:
+  - target:
+      kind: Deployment
+      labelSelector: "app notin (load-generator)"
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1

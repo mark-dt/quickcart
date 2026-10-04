@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        app.kubernetes.io/part-of: "quickcart-demo"
+    spec:
+      containers:
+        - name: frontend
+          image: workshop/frontend
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: ORDER_SERVICE_URL
+              value: "http://order-service:3001"
+            - name: PAYMENT_HEADLESS_HOST
+              value: "payment-service-headless"
+            - name: DT_RELEASE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: release
+                  key: VERSION
+            - name: DT_RELEASE_PRODUCT
+              value: "quickcart-demo"
+            - name: DT_RELEASE_STAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: release
+                  key: STAGE
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP

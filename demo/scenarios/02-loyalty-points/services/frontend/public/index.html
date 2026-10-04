@@ -528,6 +528,7 @@
       const orderId = data.orderId || '???';
       const payOk = data.payment?.paymentStatus === 'confirmed';
       const invOk = data.inventory?.inStock !== false;
+      const points = data.payment?.loyaltyPoints;
 
       const entry = document.createElement('div');
       entry.className = 'feed-entry';
@@ -536,6 +537,7 @@
         <span class="feed-services">
           <span class="svc-tag ${payOk ? 'ok' : 'fail'}">${payOk ? 'paid' : 'pay fail'}</span>
           <span class="svc-tag ${invOk ? 'ok' : 'fail'}">${invOk ? 'in stock' : 'no stock'}</span>
+          ${points ? `<span class="svc-tag ok">+${points} pts</span>` : ''}
         </span>
         <span class="feed-amount">$49.99</span>
         <span class="feed-duration">${duration}ms</span>

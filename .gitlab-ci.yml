@@ -1,0 +1,246 @@
+# QuickCart — feature to production with Dynatrace in every step (atruvia-demo).
+#
+#   merge request ─► dynatrace-plan (Step 1: what the service gets, as an MR comment)
+#   merge to main ─► dynatrace-apply ─► build ─► deploy-staging (ArgoCD) + deployment events (Step 2)
+#                 ─► quality-gate: Site Reliability Guardian, verdict as MR comment (Step 3)
+#                 ─► promote-production (ArgoCD) + deployment events
+#   Dynatrace auto-remediation workflow ─► pipeline with ROLLBACK=true ─► rollback-production (Step 4)
+#
+# GitOps: the pipeline never touches the cluster directly. It builds images
+# (tag = short commit SHA) into the node's containerd, rewrites
+# deploy/overlays/<stage>/kustomization.yaml on main ([skip ci]) and lets the
+# ArgoCD apps quickcart-staging / quickcart-production sync it.
+#
+# Runs on the shell runner registered by aiops-lab 59-gitlab-runner.
+
+variables:
+  ROLLBACK:
+    value: "false"
+    options: ["false", "true"]
+    description: "true = roll production back to the previous version (normally set by the Dynatrace remediation workflow)"
+  ROLLBACK_SERVICE: ""
+  DT_PROBLEM_ID: ""
+  DT_PROBLEM_URL: ""
+  DT_CONFIG_ONLY:
+    value: "false"
+    options: ["false", "true"]
+    description: "true = only apply the Dynatrace configuration in dynatrace/"
+  RELEASE_PRODUCT: quickcart-demo
+  STAGING_NAMESPACE: quickcart-staging
+  PRODUCTION_NAMESPACE: quickcart-production
+  # Traffic soak before the gate. Must cover the guardian's window (dynatrace/
+  # gate_window = now-4m) so only the new version is evaluated.
+  GATE_SOAK_SECONDS: "270"
+  TF_ROOT: dynatrace
+  TF_STATE_NAME: dynatrace
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - dynatrace-config
+  - build
+  - staging
+  - quality-gate
+  - production
+  - rollback
+
+default:
+  tags: [self-hosted]
+  before_script:
+    - source ci/lib.sh
+
+# Release path: merges/pushes to main that change the app or its manifests,
+# or a manual "Run pipeline" on main. Never for rollback / config-only runs.
+.release:
+  rules:
+    - if: $ROLLBACK == "true" || $DT_CONFIG_ONLY == "true"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [services/**/*, deploy/base/**/*]
+    - if: $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.terraform:
+  before_script:
+    - source ci/lib.sh
+    - |
+      export TF_IN_AUTOMATION=1 TF_INPUT=0 TF_PLUGIN_CACHE_DIR=/opt/gitlab-runner/terraform-plugins
+      mkdir -p "${TF_PLUGIN_CACHE_DIR}"
+      export TF_VAR_dt_env_url="${DT_ENV_URL}" TF_VAR_dt_apps_url="${DT_APPS_URL}" TF_VAR_dt_sso_url="${DT_SSO_URL}"
+      export TF_VAR_dt_api_token="${DT_API_TOKEN}" TF_VAR_dt_client_id="${DT_CLIENT_ID}" TF_VAR_dt_client_secret="${DT_CLIENT_SECRET}"
+      export TF_VAR_dt_account_id="${DT_ACCOUNT_ID}" TF_VAR_k8s_cluster="${K8_CLUSTER}" TF_VAR_gitlab_pat="${REPO_PAT}"
+      export TF_VAR_gitlab_url="${CI_SERVER_URL}" TF_VAR_gitlab_project_id="${CI_PROJECT_ID}" TF_VAR_gitlab_project_path="${CI_PROJECT_PATH}"
+      # GitLab-managed Terraform state
+      STATE="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}"
+      terraform -chdir="${TF_ROOT}" init -reconfigure \
+        -backend-config="address=${STATE}" \
+        -backend-config="lock_address=${STATE}/lock" \
+        -backend-config="unlock_address=${STATE}/lock" \
+        -backend-config="lock_method=POST" -backend-config="unlock_method=DELETE" \
+        -backend-config="username=gitlab-ci-token" -backend-config="password=${CI_JOB_TOKEN}" \
+        -backend-config="retry_wait_min=5"
+
+# ─────────────────────────────── merge request checks ──────────────────────
+verify:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - for f in services/*/index.js; do node --check "$f" 2>/dev/null || docker run --rm -v "$PWD:/src" -w /src node:20-alpine node --check "$f"; echo "ok $f"; done
+
+# ─────────────────────────────── Step 1: service ready by default ──────────
+dynatrace-plan:
+  stage: dynatrace-config
+  extends: .terraform
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [dynatrace/**/*]
+  script:
+    - terraform -chdir="${TF_ROOT}" plan -no-color -out=plan.tfplan | tee plan.txt
+    - |
+      {
+        echo "### 📋 Dynatrace configuration for this merge request"
+        echo
+        echo "Applied automatically when this MR is merged — no clicks in the Dynatrace UI."
+        echo
+        grep -E '^  # .* will be (created|updated|destroyed|replaced)' plan.txt \
+          | sed -E 's/^  # (.*) will be (created|updated in-place|updated|destroyed|replaced).*/- **\2**: `\1`/' || true
+        echo
+        grep -E '^(Plan:|No changes)' plan.txt | sed 's/^/**/; s/$/**/' || true
+        echo
+        echo "<details><summary>Full plan</summary>"
+        echo
+        echo '```'
+        sed -n '/Terraform will perform/,$p' plan.txt | head -400
+        echo '```'
+        echo "</details>"
+      } > plan-note.md
+      mr_note "${CI_MERGE_REQUEST_IID}" plan-note.md
+  artifacts:
+    paths: [plan.txt]
+    expire_in: 1 week
+
+dynatrace-apply:
+  stage: dynatrace-config
+  extends: .terraform
+  rules:
+    - if: $ROLLBACK == "true"
+      when: never
+    - if: $DT_CONFIG_ONLY == "true"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [dynatrace/**/*]
+    - if: $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - terraform -chdir="${TF_ROOT}" apply -no-color -auto-approve
+    - terraform -chdir="${TF_ROOT}" output -no-color
+
+# ─────────────────────────────── Step 2: new feature and deploy ────────────
+build:
+  stage: build
+  extends: .release
+  script:
+    - |
+      VERSION="${CI_COMMIT_SHORT_SHA}"
+      for svc in ${SERVICES}; do
+        log "Building workshop/${svc}:${VERSION}"
+        docker build -q -t "workshop/${svc}:${VERSION}" "services/${svc}/"
+        docker save "workshop/${svc}:${VERSION}" | k3s ctr images import - >/dev/null
+      done
+
+deploy-staging:
+  stage: staging
+  extends: .release
+  needs: [build]
+  environment:
+    name: staging
+    url: https://staging.${WORKSHOP_IP}.nip.io
+  script:
+    - load_mr_context
+    - SHA="$(gitops_release staging "${CI_COMMIT_SHORT_SHA}" "deploy: staging ${CI_COMMIT_SHORT_SHA}")"
+    - argocd_sync_wait staging "${SHA}"
+    - date -u +%s > staging-deployed-at
+    - dt_deployment_events staging "${CI_COMMIT_SHORT_SHA}" deploy
+  artifacts:
+    paths: [staging-deployed-at]
+    expire_in: 1 day
+
+# ─────────────────────────────── Step 3: quality gate ──────────────────────
+quality-gate:
+  stage: quality-gate
+  extends: .terraform
+  rules: !reference [.release, rules]
+  needs: [deploy-staging]
+  script:
+    - load_mr_context
+    - |
+      DEPLOYED_AT="$(cat staging-deployed-at)"
+      WAIT=$(( DEPLOYED_AT + GATE_SOAK_SECONDS - $(date -u +%s) ))
+      if [ "${WAIT}" -gt 0 ]; then
+        log "Letting staging take traffic for ${WAIT}s before asking the Site Reliability Guardian..."
+        while [ "${WAIT}" -gt 0 ]; do echo "   ${WAIT}s"; S=$(( WAIT < 30 ? WAIT : 30 )); sleep "${S}"; WAIT=$(( WAIT - S )); done
+      fi
+    - terraform -chdir="${TF_ROOT}" output -json quality_gate_workflow_ids > gates.json
+    - |
+      RESULT=0
+      : > gate-report.md
+      for svc in $(python3 -c 'import json; print(" ".join(json.load(open("gates.json"))))'); do
+        WF="$(python3 -c 'import json,sys; print(json.load(open("gates.json"))[sys.argv[1]])' "${svc}")"
+        python3 ci/dt.py gate --workflow-id "${WF}" --service "${svc}" --report "gate-${svc}.md" || RESULT=1
+        cat "gate-${svc}.md" >> gate-report.md
+        echo >> gate-report.md
+      done
+      if [ -n "${MR_IID}" ]; then mr_note "${MR_IID}" gate-report.md; fi
+      exit "${RESULT}"
+  artifacts:
+    when: always
+    paths: [gate-report.md]
+    expire_in: 1 week
+
+promote-production:
+  stage: production
+  extends: .release
+  needs: [quality-gate]
+  environment:
+    name: production
+    url: https://shop.${WORKSHOP_IP}.nip.io
+  script:
+    - load_mr_context
+    - SHA="$(gitops_release production "${CI_COMMIT_SHORT_SHA}" "deploy: production ${CI_COMMIT_SHORT_SHA}")"
+    - argocd_sync_wait production "${SHA}"
+    - dt_deployment_events production "${CI_COMMIT_SHORT_SHA}" deploy
+
+# ─────────────────────────────── Step 4: auto-remediation ──────────────────
+rollback-production:
+  stage: rollback
+  rules:
+    - if: $ROLLBACK == "true"
+  environment:
+    name: production
+    url: https://shop.${WORKSHOP_IP}.nip.io
+  script:
+    - |
+      git fetch -q origin "${CI_DEFAULT_BRANCH}"
+      FILE=deploy/overlays/production/kustomization.yaml
+      CURRENT="$(overlay_version production "origin/${CI_DEFAULT_BRANCH}")"
+      # Versions an earlier rollback moved away from are known-bad: skip them.
+      BAD=" $(git log --format=%s --grep='^rollback: production ' "origin/${CI_DEFAULT_BRANCH}" | awk '{print $3}' | tr '\n' ' ') "
+      PREVIOUS=""
+      for c in $(git log --format=%H "origin/${CI_DEFAULT_BRANCH}" -- "${FILE}"); do
+        v="$(overlay_version production "${c}")"
+        if [ -n "${v}" ] && [ "${v}" != "${CURRENT}" ] && [[ "${BAD}" != *" ${v} "* ]]; then PREVIOUS="${v}"; break; fi
+      done
+      if [ -z "${PREVIOUS}" ]; then
+        echo "No earlier production version than ${CURRENT} in the history of ${FILE} — nothing to roll back to."
+        exit 1
+      fi
+      log "Rolling production back: ${CURRENT} -> ${PREVIOUS} (Dynatrace problem ${DT_PROBLEM_ID:-n/a})"
+      # Release context = the merge that shipped the faulty version (the
+      # version IS that commit's short SHA)
+      load_mr_context "$(git rev-parse -q --verify "${CURRENT}^{commit}" || echo "${CI_COMMIT_SHA}")"
+    - SHA="$(gitops_release production "${PREVIOUS}" "rollback: production ${CURRENT} -> ${PREVIOUS} (Dynatrace ${DT_PROBLEM_ID:-manual})")"
+    - argocd_sync_wait production "${SHA}"
+    - |
+      EXTRA="$(python3 -c 'import json,sys; print(json.dumps({"rollback.from_version": sys.argv[1], "dt.problem.id": sys.argv[2], "dt.problem.url": sys.argv[3]}))' "${CURRENT}" "${DT_PROBLEM_ID}" "${DT_PROBLEM_URL}")"
+      dt_deployment_events production "${PREVIOUS}" rollback "${EXTRA}"

@@ -27,6 +27,8 @@ function tc() {
 const app = express();
 app.use(traceMiddleware);
 const PORT = process.env.PORT || 3000;
+// Release metadata (set by the deploy overlay; also what OneAgent reports)
+const RELEASE = { version: process.env.DT_RELEASE_VERSION || "dev", stage: process.env.DT_RELEASE_STAGE || "local" };
 const ORDER_SERVICE = process.env.ORDER_SERVICE_URL || "http://order-service.workshop.svc.cluster.local:3001";
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -42,7 +44,7 @@ function fetch(url) {
 }
 
 app.get("/health", (req, res) => {
-  res.json({ service: "frontend", status: "ok" });
+  res.json({ service: "frontend", status: "ok", ...RELEASE });
 });
 
 const dns = require("dns");

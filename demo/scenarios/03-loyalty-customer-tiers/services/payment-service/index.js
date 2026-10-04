@@ -51,6 +51,23 @@ function simulateFailureLatency() {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
+// Loyalty points: 1 point per full amount unit, double points from 50 up.
+function loyaltyPointsFor(amount) {
+  const value = Math.floor(parseFloat(amount) || 0);
+  return value >= 50 ? value * 2 : value;
+}
+
+// Customer tier (bronze / silver / gold) from the CRM tier service.
+// Gold customers earn double points, silver one and a half.
+const TIER_MULTIPLIER = { bronze: 1, silver: 1.5, gold: 2 };
+
+async function lookupTier(orderId) {
+  // Remote call to the CRM tier service
+  await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 800));
+  if (Math.random() < 0.1) throw new Error("tier service timeout");
+  return ["bronze", "silver", "gold"][Math.floor(Math.random() * 3)];
+}
+
 app.use(express.json());
 
 app.get("/health", (req, res) => {
@@ -88,9 +105,19 @@ app.get("/pay", async (req, res) => {
     console.log(JSON.stringify({ service: "payment-service", path: "/pay", notification_error: err.message, ...tc() }));
   }
 
+  let tier;
+  try {
+    tier = await lookupTier(orderId);
+  } catch (err) {
+    const duration = Date.now() - start;
+    console.error(JSON.stringify({ service: "payment-service", path: "/pay", orderId, status: 500, level: "error", error: err.message, duration, ...tc() }));
+    return res.status(500).json({ error: "loyalty tier lookup failed", orderId });
+  }
+  const loyaltyPoints = Math.round(loyaltyPointsFor(amount) * TIER_MULTIPLIER[tier]);
+
   const duration = Date.now() - start;
-  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, status: 200, duration, ...tc() }));
-  res.json({ orderId, amount, paymentStatus: "confirmed", transactionId: `TXN-${Date.now()}` });
+  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, tier, loyaltyPoints, status: 200, duration, ...tc() }));
+  res.json({ orderId, amount, paymentStatus: "confirmed", tier, loyaltyPoints, transactionId: `TXN-${Date.now()}` });
 });
 
 app.listen(PORT, () => console.log(`payment-service listening on :${PORT} (failureRate=${failureRate})`));

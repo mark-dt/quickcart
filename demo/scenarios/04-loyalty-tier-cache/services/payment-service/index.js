@@ -51,6 +51,33 @@ function simulateFailureLatency() {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
+// Loyalty points: 1 point per full amount unit, double points from 50 up.
+function loyaltyPointsFor(amount) {
+  const value = Math.floor(parseFloat(amount) || 0);
+  return value >= 50 ? value * 2 : value;
+}
+
+// Customer tier (bronze / silver / gold) multipliers. The CRM tier table is
+// cached in memory and refreshed every 5 minutes instead of calling the CRM
+// tier service on every payment.
+const TIER_REFRESH_MS = 5 * 60 * 1000;
+
+function loadTierTable() {
+  return new Map([["bronze", 1], ["silver", 1.5], ["gold", 2]]);
+}
+
+let tierCache = loadTierTable();
+setInterval(() => {
+  tierCache = new Map(); // drop stale entries, repopulated on next refresh
+}, TIER_REFRESH_MS);
+
+function tierMultiplier() {
+  const tier = ["bronze", "silver", "gold"][Math.floor(Math.random() * 3)];
+  const multiplier = tierCache.get(tier);
+  if (multiplier === undefined) throw new Error(`loyalty tier cache miss for '${tier}'`);
+  return { tier, multiplier };
+}
+
 app.use(express.json());
 
 app.get("/health", (req, res) => {
@@ -88,9 +115,19 @@ app.get("/pay", async (req, res) => {
     console.log(JSON.stringify({ service: "payment-service", path: "/pay", notification_error: err.message, ...tc() }));
   }
 
+  let tier, multiplier;
+  try {
+    ({ tier, multiplier } = tierMultiplier());
+  } catch (err) {
+    const duration = Date.now() - start;
+    console.error(JSON.stringify({ service: "payment-service", path: "/pay", orderId, status: 500, level: "error", error: err.message, duration, ...tc() }));
+    return res.status(500).json({ error: "loyalty calculation failed", orderId });
+  }
+  const loyaltyPoints = Math.round(loyaltyPointsFor(amount) * multiplier);
+
   const duration = Date.now() - start;
-  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, status: 200, duration, ...tc() }));
-  res.json({ orderId, amount, paymentStatus: "confirmed", transactionId: `TXN-${Date.now()}` });
+  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, tier, loyaltyPoints, status: 200, duration, ...tc() }));
+  res.json({ orderId, amount, paymentStatus: "confirmed", tier, loyaltyPoints, transactionId: `TXN-${Date.now()}` });
 });
 
 app.listen(PORT, () => console.log(`payment-service listening on :${PORT} (failureRate=${failureRate})`));

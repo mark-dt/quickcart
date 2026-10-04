@@ -25,9 +25,11 @@ function tc() {
 const app = express();
 app.use(traceMiddleware);
 const PORT = process.env.PORT || 3004;
+// Release metadata (set by the deploy overlay; also what OneAgent reports)
+const RELEASE = { version: process.env.DT_RELEASE_VERSION || "dev", stage: process.env.DT_RELEASE_STAGE || "local" };
 
 app.get("/health", (req, res) => {
-  res.json({ service: "notification-service", status: "ok" });
+  res.json({ service: "notification-service", status: "ok", ...RELEASE });
 });
 
 app.get("/notify", (req, res) => {

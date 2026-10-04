@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  labels:
+    app: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+        app.kubernetes.io/part-of: "quickcart-demo"
+    spec:
+      containers:
+        - name: notification-service
+          image: workshop/notification-service
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3004
+          env:
+            - name: PORT
+              value: "3004"
+            - name: DT_RELEASE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: release
+                  key: VERSION
+            - name: DT_RELEASE_PRODUCT
+              value: "quickcart-demo"
+            - name: DT_RELEASE_STAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: release
+                  key: STAGE
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3004
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3004
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - port: 3004
+      targetPort: 3004
+  type: ClusterIP

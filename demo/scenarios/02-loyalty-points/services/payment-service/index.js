@@ -51,6 +51,12 @@ function simulateFailureLatency() {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
+// Loyalty points: 1 point per full amount unit, double points from 50 up.
+function loyaltyPointsFor(amount) {
+  const value = Math.floor(parseFloat(amount) || 0);
+  return value >= 50 ? value * 2 : value;
+}
+
 app.use(express.json());
 
 app.get("/health", (req, res) => {
@@ -88,9 +94,11 @@ app.get("/pay", async (req, res) => {
     console.log(JSON.stringify({ service: "payment-service", path: "/pay", notification_error: err.message, ...tc() }));
   }
 
+  const loyaltyPoints = loyaltyPointsFor(amount);
+
   const duration = Date.now() - start;
-  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, status: 200, duration, ...tc() }));
-  res.json({ orderId, amount, paymentStatus: "confirmed", transactionId: `TXN-${Date.now()}` });
+  console.log(JSON.stringify({ service: "payment-service", path: "/pay", orderId, amount, loyaltyPoints, status: 200, duration, ...tc() }));
+  res.json({ orderId, amount, paymentStatus: "confirmed", loyaltyPoints, transactionId: `TXN-${Date.now()}` });
 });
 
 app.listen(PORT, () => console.log(`payment-service listening on :${PORT} (failureRate=${failureRate})`));
