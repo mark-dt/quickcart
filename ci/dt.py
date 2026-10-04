@@ -53,6 +53,25 @@ def http(method, url, headers=None, body=None, form=None, timeout=60):
 
 
 # --------------------------------------------------------------- events
+def single_entity_selector(selector):
+    """Dynatrace can track two live service entities for one workload (seen
+    on every staging deploy). An event on a multi-entity selector is stored
+    once per entity — and fires the quality-gate workflow once per entity.
+    Pin the event to the most recently seen entity instead."""
+    status, resp = http(
+        "GET",
+        f"{env('DT_ENV_URL')}/api/v2/entities?" + urllib.parse.urlencode(
+            {"entitySelector": selector, "fields": "lastSeenTms", "from": "now-2h", "pageSize": 50}),
+        headers={"Authorization": f"Api-Token {env('DT_API_TOKEN')}"},
+    )
+    entities = resp.get("entities") or [] if status == 200 else []
+    if not entities:
+        return selector, 0
+    latest = max(entities, key=lambda e: e.get("lastSeenTms") or 0)
+    return f'entityId("{latest["entityId"]}")', len(entities)
+
+
+
 # Note: the classic events API stores the reserved dt.event.deployment.<x>
 # properties in Grail as deployment.<x> — DQL, workflow triggers and the
 # remediation scripts must read deployment.version, deployment.release_stage, ...
@@ -89,6 +108,7 @@ def cmd_event(a):
             f'toRelationships.isNamespaceOfService(type(CLOUD_APPLICATION_NAMESPACE),entityName.equals("{a.namespace}")),'
             f'toRelationships.isClusterOfService(type(KUBERNETES_CLUSTER),entityName.equals("{env("K8_CLUSTER")}"))'
         )
+        selector, candidates = single_entity_selector(selector)
         status, resp = http(
             "POST", f"{env('DT_ENV_URL')}/api/v2/events/ingest",
             headers={"Authorization": f"Api-Token {env('DT_API_TOKEN')}"},
@@ -96,7 +116,8 @@ def cmd_event(a):
                   "entitySelector": selector, "properties": props},
         )
         matched = sum(1 for r in resp.get("eventIngestResults", []) if r.get("status") == "OK")
-        print(f"   deployment event {svc} ({a.stage} {a.version}): HTTP {status}, {matched} entity match(es)")
+        print(f"   deployment event {svc} ({a.stage} {a.version}): HTTP {status}, {matched} entity "
+              f"(latest of {candidates} candidate(s))")
         if status >= 300:
             print(f"   {json.dumps(resp)[:400]}")
             ok = False
