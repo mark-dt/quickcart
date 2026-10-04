@@ -198,7 +198,7 @@ def cmd_gate(a):
     # Site Reliability Guardian validation result. Read defensively: the
     # status/objective field names have shifted between SRG versions.
     verdict = str(first(result, "validation_status", "status", default="error")).lower()
-    objectives = first(result, "objective_results", "objectives", default=[]) or []
+    objectives = first(result, "validation_details", "objective_results", "objectives", default=[]) or []
     rows = []
     for o in objectives:
         rows.append({

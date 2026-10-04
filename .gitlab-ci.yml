@@ -33,6 +33,10 @@ variables:
   DT_VALIDATION_URL: ""
   DT_PROBLEM_ID: ""
   DT_PROBLEM_URL: ""
+  DT_DESTROY:
+    value: "false"
+    options: ["false", "true"]
+    description: "true = DELETE every Dynatrace object in dynatrace/ (full demo reset, before replacing the VM)"
   DT_CONFIG_ONLY:
     value: "false"
     options: ["false", "true"]
@@ -65,7 +69,7 @@ default:
 # or a manual "Run pipeline" on main. Never for rollback / config-only runs.
 .release:
   rules:
-    - if: $ROLLBACK == "true" || $DT_CONFIG_ONLY == "true"
+    - if: $ROLLBACK == "true" || $DT_CONFIG_ONLY == "true" || $DT_DESTROY == "true"
       when: never
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: [services/**/*, deploy/base/**/*]
@@ -135,7 +139,7 @@ dynatrace-apply:
   stage: dynatrace-config
   extends: .terraform
   rules:
-    - if: $ROLLBACK == "true"
+    - if: $ROLLBACK == "true" || $DT_DESTROY == "true"
       when: never
     - if: $DT_CONFIG_ONLY == "true"
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -144,6 +148,16 @@ dynatrace-apply:
   script:
     - terraform -chdir="${TF_ROOT}" apply -no-color -auto-approve
     - terraform -chdir="${TF_ROOT}" output -no-color
+
+# Full reset: remove every demo object from Dynatrace (run before replacing the VM;
+# the VM's GitLab holds the Terraform state).
+dynatrace-destroy:
+  stage: dynatrace-config
+  extends: .terraform
+  rules:
+    - if: $DT_DESTROY == "true"
+  script:
+    - terraform -chdir="${TF_ROOT}" destroy -no-color -auto-approve
 
 # ─────────────────────────────── Step 2: new feature and deploy ────────────
 build:
@@ -221,6 +235,8 @@ promote-production:
 rollback:
   stage: rollback
   rules:
+    - if: $DT_DESTROY == "true"
+      when: never
     - if: $ROLLBACK == "true"
   environment:
     name: $ROLLBACK_STAGE
