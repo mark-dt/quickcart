@@ -61,7 +61,10 @@ def cmd_event(a):
     commit_url = f"{env('CI_PROJECT_URL')}/-/commit/{env('CI_COMMIT_SHA')}"
     ok = True
     for svc in a.services:
+        title = f"{svc} {a.name} {a.version}"
         props = {
+            "event.title": title,
+            "event.description": f"{a.name} of {svc} {a.version} to {a.stage} ({a.namespace})",
             "dt.event.deployment.name": f"{svc} {a.name}",
             "dt.event.deployment.version": a.version,
             "dt.event.deployment.release_stage": a.stage,
@@ -89,7 +92,7 @@ def cmd_event(a):
         status, resp = http(
             "POST", f"{env('DT_ENV_URL')}/api/v2/events/ingest",
             headers={"Authorization": f"Api-Token {env('DT_API_TOKEN')}"},
-            body={"eventType": "CUSTOM_DEPLOYMENT", "title": f"{svc} {a.name} {a.version}",
+            body={"eventType": "CUSTOM_DEPLOYMENT", "title": title,
                   "entitySelector": selector, "properties": props},
         )
         matched = sum(1 for r in resp.get("eventIngestResults", []) if r.get("status") == "OK")
