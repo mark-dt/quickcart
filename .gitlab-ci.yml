@@ -1,19 +1,5 @@
-# QuickCart — a change goes to production only if Dynatrace says it's good.
-#
-#   merge to main ─► build ─► deploy-staging (ArgoCD) + deployment event
-#                 ─► quality-gate: the staging deployment event triggers the
-#                    Site Reliability Guardian workflow in Dynatrace; on FAIL
-#                    Dynatrace starts this pipeline with ROLLBACK=true and
-#                    staging goes back to the previous version. This job waits
-#                    for the verdict and comments it on the merge request.
-#                 ─► promote-production (ArgoCD), only on PASS
-#
-# The guardian and the workflow are created per VM by the aiops-lab Terraform
-# (dt-exercise.tf) — this pipeline never touches the Dynatrace configuration.
-#
-# GitOps: images are built into the node's containerd (tag = short commit
-# SHA); the pipeline rewrites deploy/overlays/<stage>/kustomization.yaml on
-# main ([skip ci]) and ArgoCD (quickcart-staging / quickcart-production) syncs.
+# build → staging (ArgoCD) → Dynatrace quality gate → production.
+# On FAIL, Dynatrace runs this pipeline with ROLLBACK=true to roll staging back.
 
 variables:
   ROLLBACK:
@@ -24,8 +10,7 @@ variables:
     value: "staging"
     options: ["staging", "production"]
     description: "Environment to roll back"
-  # Version to roll back FROM; if the stage no longer runs it, nothing happens
-  # (Dynatrace can fire the workflow twice for one deployment).
+  # Roll back only if the stage still runs this version
   ROLLBACK_FROM_VERSION: ""
   ROLLBACK_REASON: ""
   DT_VALIDATION_URL: ""
@@ -45,8 +30,7 @@ default:
   before_script:
     - source ci/lib.sh
 
-# Release: every push (merge) to main that changes the app or its manifests,
-# or a manual "Run pipeline" on main.
+# Merges to main that change the app or manifests, and manual runs
 .release:
   rules:
     - if: $ROLLBACK == "true"
@@ -149,7 +133,7 @@ rollback:
       fi
       REASON="${ROLLBACK_REASON:-manual rollback}"
       log "Rolling ${STAGE} back: ${CURRENT} -> ${PREVIOUS} (${REASON})"
-      # The version IS the short SHA of the merge that shipped it
+      # Version = short SHA of the merge that shipped it
       load_mr_context "$(git rev-parse -q --verify "${CURRENT}^{commit}" || echo "${CI_COMMIT_SHA}")"
     - |
       SHA="$(gitops_release "${STAGE}" "${PREVIOUS}" "rollback: ${STAGE} ${CURRENT} -> ${PREVIOUS} (${REASON})")"

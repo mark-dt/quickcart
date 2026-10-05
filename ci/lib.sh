@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# Shared helpers for the demo pipeline (.gitlab-ci.yml). Sourced by every job
-# on the shell runner (root on the VM: docker, k3s ctr, k3s kubectl available).
-#
-# CI/CD variables (set by aiops-lab 58-gitlab): DT_ENV_URL, DT_APPS_URL,
-# DT_SSO_URL, DT_TENANT_ID, DT_ACCOUNT_ID, DT_API_TOKEN, DT_CLIENT_ID,
-# DT_CLIENT_SECRET, K8_CLUSTER, REPO_PAT, WORKSHOP_IP.
+# Pipeline helpers, sourced by every job (GitOps, ArgoCD, GitLab MR notes, Dynatrace events).
 
-# GitLab's shell executor already runs with errexit + pipefail; no `set -u`
-# here — it would also apply to the runner's own step code.
 
 SERVICES="frontend order-service payment-service inventory-service notification-service"
 CI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,9 +68,8 @@ overlay_version() {
     | sed -n 's/^ *- VERSION=//p' | head -n1
 }
 
-# gitops_release <stage> <version> <commit message>
-# Rewrites the overlay (VERSION + every image newTag) on the tip of main,
-# pushes with [skip ci] and prints the pushed commit SHA on stdout.
+# gitops_release <stage> <version> <msg> — set the overlay's version on main, push [skip ci],
+# print the pushed SHA
 gitops_release() {
   local stage="$1" version="$2" msg="$3"
   local file="deploy/overlays/${stage}/kustomization.yaml"
@@ -106,8 +98,7 @@ gitops_release() {
   return 1
 }
 
-# argocd_sync_wait <stage> <git-sha> — refresh the ArgoCD app, wait until it
-# runs that revision Synced + Healthy, then wait for the rollouts.
+# argocd_sync_wait <stage> <git-sha> — wait until ArgoCD runs that revision, Synced + Healthy
 argocd_sync_wait() {
   local stage="$1" sha="$2" app="quickcart-$1" ns rev sync health
   ns="$(namespace_for "${stage}")"

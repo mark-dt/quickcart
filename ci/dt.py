@@ -1,22 +1,8 @@
 #!/usr/bin/env python3
-"""Dynatrace calls made by the demo pipeline.
+"""Dynatrace calls of the pipeline.
 
-  dt.py event --stage S --version V --name N --namespace NS [--extra JSON] svc...
-      One CUSTOM_DEPLOYMENT event per service (classic events API v2, API
-      token with events.ingest). Carries version, stage, commit, merge request
-      and pipeline link, so the deployment shows up on the service and Davis
-      can correlate problems with it.
-
-  dt.py gate --workflow-title T --service SVC --version V --deployed-at TS --report FILE
-      The service's quality-gate workflow is started by Dynatrace itself (event
-      trigger on the staging deployment event): it soaks, validates the Site
-      Reliability Guardian and, on FAIL, starts the GitLab staging rollback.
-      This waits for that execution (OAuth platform token, Automation API),
-      reads the verdict and writes a markdown report for the MR.
-      Exit 0 = pass/warning, 1 = fail.
-
-Environment: DT_ENV_URL, DT_APPS_URL, DT_SSO_URL, DT_TENANT_ID, DT_API_TOKEN,
-DT_CLIENT_ID, DT_CLIENT_SECRET, K8_CLUSTER, RELEASE_PRODUCT, CI_* and MR_*.
+  event  — send a CUSTOM_DEPLOYMENT event per service
+  gate   — wait for the quality-gate verdict, write the MR report (exit 1 = fail)
 """
 import argparse
 import json
@@ -54,10 +40,7 @@ def http(method, url, headers=None, body=None, form=None, timeout=60):
 
 # --------------------------------------------------------------- events
 def single_entity_selector(selector):
-    """Dynatrace can track two live service entities for one workload (seen
-    on every staging deploy). An event on a multi-entity selector is stored
-    once per entity — and fires the quality-gate workflow once per entity.
-    Pin the event to the most recently seen entity instead."""
+    """Selector for the most recently seen matching entity (one event, one workflow run)."""
     status, resp = http(
         "GET",
         f"{env('DT_ENV_URL')}/api/v2/entities?" + urllib.parse.urlencode(
@@ -72,9 +55,7 @@ def single_entity_selector(selector):
 
 
 
-# Note: the classic events API stores the reserved dt.event.deployment.<x>
-# properties in Grail as deployment.<x> — DQL, workflow triggers and the
-# remediation scripts must read deployment.version, deployment.release_stage, ...
+# dt.event.deployment.<x> properties are stored in Grail as deployment.<x>
 def cmd_event(a):
     extra = json.loads(a.extra or "{}")
     commit_url = f"{env('CI_PROJECT_URL')}/-/commit/{env('CI_COMMIT_SHA')}"
@@ -129,8 +110,7 @@ _TOKEN = {"value": None, "expires": 0.0, "scopes": None}
 
 
 def platform_token(scopes):
-    """OAuth platform token, cached and refreshed a minute before expiry
-    (tokens live ~5 min — the gate polls far longer than that)."""
+    """OAuth platform token, cached and refreshed before it expires."""
     if _TOKEN["value"] and _TOKEN["scopes"] == scopes and time.time() < _TOKEN["expires"] - 60:
         return _TOKEN["value"]
     status, resp = http("POST", env("DT_SSO_URL"), form={
@@ -164,8 +144,7 @@ def first(d, *keys, default=None):
 
 
 def find_triggered_execution(base, auth, workflow_id, version, not_before, wait_s):
-    """Execution of the gate workflow started by the staging deployment event
-    for this version (event trigger in dynatrace/service.tf)."""
+    """Execution of the gate workflow triggered by this version's staging deployment."""
     deadline = time.time() + wait_s
     seen = set()
     while time.time() < deadline:
@@ -226,8 +205,7 @@ def cmd_gate(a):
     if not isinstance(rollback, dict):
         rollback = {}
 
-    # Site Reliability Guardian validation result. Read defensively: the
-    # status/objective field names have shifted between SRG versions.
+    # Guardian result (field names vary between SRG versions)
     verdict = str(first(result, "validation_status", "status", default="error")).lower()
     objectives = first(result, "validation_details", "objective_results", "objectives", default=[]) or []
     rows = []

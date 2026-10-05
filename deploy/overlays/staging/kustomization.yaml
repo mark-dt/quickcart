@@ -1,8 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Managed by the pipeline: deploy-staging rewrites VERSION and every newTag
-# to the commit's short SHA; ArgoCD app quickcart-staging syncs this directory.
+# Version (VERSION, newTag) is written by the pipeline; ArgoCD app quickcart-staging syncs it.
 namespace: quickcart-staging
 
 resources:
