@@ -1,15 +1,5 @@
-# macOS
-.DS_Store
-
-# Node
 node_modules/
-
-# Environment
-.env
-.env.*
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
+__pycache__/
+.terraform/
+*.tfstate*
+.DS_Store
