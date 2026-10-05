@@ -36,7 +36,7 @@ The quality gate only works if both repos agree on these names. Change them toge
 | Deployment event | `CUSTOM_DEPLOYMENT` per service, `dt.event.deployment.name = "<service> deploy"`, `release_stage = staging/production`, `release_product = quickcart-demo` (`RELEASE_PRODUCT`), `k8s.cluster.name = $K8_CLUSTER` — stored in Grail as `deployment.<x>` | `ci/dt.py event` | workflow trigger |
 | Workflow title | `workshop-aiops-lab $K8_CLUSTER $GATE_SERVICE quality gate` | `quality-gate` job | `terraform/workflow.tf` |
 | Verdict | task `validate`, result `validation_status`, `validation_details[]` | `ci/dt.py gate` | Site Reliability Guardian |
-| Rollback | pipeline variables `ROLLBACK=true`, `ROLLBACK_STAGE`, `ROLLBACK_FROM_VERSION`, `ROLLBACK_REASON`, `DT_VALIDATION_URL` | `rollback` job | `terraform/scripts/rollback_staging.js` |
+| Rollback | pipeline variables `ROLLBACK=true`, `ROLLBACK_STAGE`, `ROLLBACK_FROM_VERSION`, `ROLLBACK_REASON`, `DT_VALIDATION_URL` | `rollback` job | GitLab connector task `rollback_staging` in `terraform/workflow.tf` |
 
 CI/CD variables this pipeline expects: `DT_ENV_URL`, `DT_API_TOKEN` (events.ingest),
 `DT_APPS_URL`, `DT_SSO_URL`, `DT_TENANT_ID`, `DT_CLIENT_ID`, `DT_CLIENT_SECRET`

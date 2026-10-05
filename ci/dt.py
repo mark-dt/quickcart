@@ -235,9 +235,11 @@ def cmd_gate(a):
             lines.append(f"| {r['name']} | {ri} {r['status']} | {r['value']} | {r['target']} | {r['warning']} |")
         lines.append("")
     if verdict not in ("pass", "warning"):
-        if rollback.get("rolledBack"):
+        # rollback_staging = GitLab connector "Trigger a new pipeline" (GitLab pipeline object)
+        rollback_url = (rollback.get("pipeline") or {}).get("web_url")
+        if rollback_url:
             lines.append(f"↩️ **Dynatrace rolled staging back** to the previous version "
-                         f"([rollback pipeline]({rollback.get('pipelineUrl') or ''})).")
+                         f"([rollback pipeline]({rollback_url})).")
             lines.append("")
     if verdict not in ("pass", "warning", "fail"):
         lines.append(f"The validation did not produce a verdict (workflow state `{state}`) — treating it as failed.")
